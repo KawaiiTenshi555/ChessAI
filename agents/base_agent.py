@@ -86,6 +86,12 @@ class BaseAgent(ABC):
     def get_config(self) -> Dict[str, Any]:
         """Return a dict of hyperparameters and settings."""
 
+    def on_episode_end(self, episode: int, reward: float, length: int) -> None:
+        """
+        Hook called at the end of each episode.
+        Override to implement epsilon decay, buffer flushes, etc.
+        """
+
     # ------------------------------------------------------------------
     # Training loop — can be overridden for off-policy / batched updates
     # ------------------------------------------------------------------
@@ -122,6 +128,7 @@ class BaseAgent(ABC):
 
             self.episode_rewards.append(ep_reward)
             self.episode_lengths.append(ep_length)
+            self.on_episode_end(ep, ep_reward, ep_length)
 
             if verbose and (ep + 1) % max(1, n_episodes // 10) == 0:
                 avg_r = np.mean(self.episode_rewards[-100:])
