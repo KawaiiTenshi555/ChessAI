@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chess IA</title>
+  <style>
+    /* ===== Reset & Base ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      padding: 20px;
+    }
+
+    h1 {
+      font-size: 1.8rem;
+      font-weight: 300;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      color: #c9a84c;
+    }
+
+    /* ===== Layout ===== */
+    .game-container {
+      display: flex;
+      gap: 28px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    /* ===== Board wrapper (labels + board) ===== */
+    .board-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      user-select: none;
+    }
+
+    .board-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .rank-label, .file-label {
+      width: 20px;
+      text-align: center;
+      font-size: 0.75rem;
+      color: #888;
+      font-weight: 600;
+    }
+
+    .file-labels {
+      display: flex;
+      gap: 4px;
+      padding-left: 24px;
+    }
+
+    .file-label { width: 72px; }
+
+    /* ===== Board ===== */
+    #board {
+      display: grid;
+      grid-template-columns: repeat(8, 72px);
+      grid-template-rows: repeat(8, 72px);
+      border: 3px solid #c9a84c;
+      border-radius: 4px;
+      overflow: hidden;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+    }
+
+    .square {
+      width: 72px;
+      height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      position: relative;
+      transition: filter 0.1s;
+    }
+
+    .square.light { background: #f0d9b5; }
+    .square.dark  { background: #b58863; }
+
+    .square:hover { filter: brightness(1.1); }
+
+    /* Highlights */
+    .square.selected        { background: #7fc97f !important; }
+    .square.last-from       { background: rgba(255, 215, 0, 0.5) !important; }
+    .square.last-to         { background: rgba(255, 215, 0, 0.7) !important; }
+    .square.in-check        { background: rgba(220, 50, 50, 0.75) !important; }
+
+    /* Legal move dots */
+    .square.legal-move::after {
+      content: '';
+      position: absolute;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.18);
+      pointer-events: none;
+    }
+
+    .square.legal-capture::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 0;
+      background: transparent;
+      border: 6px solid rgba(0, 0, 0, 0.20);
+      pointer-events: none;
+    }
+
+    /* ===== Pieces ===== */
+    .piece {
+      font-size: 52px;
+      line-height: 1;
+      pointer-events: none;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.4);
+      transition: transform 0.1s;
+    }
+
+    .square.selected .piece { transform: scale(1.1); }
+
+    /* ===== Sidebar ===== */
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-width: 220px;
+      max-width: 260px;
+    }
+
+    .card {
+      background: #16213e;
+      border: 1px solid #2a3a5e;
+      border-radius: 10px;
+      padding: 16px;
+    }
+
+    .card h3 {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: #888;
+      margin-bottom: 10px;
+    }
+
+    /* Status */
+    #status-text {
+      font-size: 1.05rem;
+      font-weight: 500;
+      color: #e0e0e0;
+      line-height: 1.5;
+    }
+
+    #status-text.check   { color: #ff6b6b; }
+    #status-text.gameover { color: #c9a84c; font-size: 1.15rem; font-weight: 700; }
+
+    .turn-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 6px;
+    }
+
+    .turn-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 2px solid #888;
+    }
+
+    .turn-dot.white-turn { background: #f5f5f5; }
+    .turn-dot.black-turn { background: #222; }
+
+    /* Move history */
+    #move-history {
+      max-height: 160px;
+      overflow-y: auto;
+      font-size: 0.82rem;
+      color: #aaa;
+      line-height: 1.8;
+      scrollbar-width: thin;
+      scrollbar-color: #2a3a5e transparent;
+    }
+
+    #move-history span.move-pair { margin-right: 6px; }
+    #move-history span.move-num  { color: #666; }
+    #move-history span.move-uci  { color: #c9a84c; cursor: default; }
+    #move-history span.move-uci:hover { color: #e0c070; }
+
+    /* Controls */
+    .controls { display: flex; flex-direction: column; gap: 8px; }
+
+    .btn {
+      padding: 10px 14px;
+      border: none;
+      border-radius: 7px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      transition: all 0.15s;
+    }
+
+    .btn-primary {
+      background: #c9a84c;
+      color: #1a1a2e;
+    }
+    .btn-primary:hover { background: #e0c070; transform: translateY(-1px); }
+
+    .btn-secondary {
+      background: #2a3a5e;
+      color: #e0e0e0;
+    }
+    .btn-secondary:hover { background: #3a4e7a; }
+
+    /* Color selector */
+    .color-select {
+      display: flex;
+      gap: 8px;
+    }
+
+    .color-btn {
+      flex: 1;
+      padding: 8px;
+      border: 2px solid #2a3a5e;
+      border-radius: 6px;
+      background: #16213e;
+      color: #e0e0e0;
+      cursor: pointer;
+      font-size: 0.85rem;
+      text-align: center;
+      transition: all 0.15s;
+    }
+
+    .color-btn.active { border-color: #c9a84c; color: #c9a84c; }
+    .color-btn:hover  { border-color: #c9a84c80; }
+
+    /* Info row */
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.78rem;
+      color: #666;
+    }
+
+    /* ===== Promotion Modal ===== */
+    #promo-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #promo-modal.visible { display: flex; }
+
+    .promo-box {
+      background: #16213e;
+      border: 2px solid #c9a84c;
+      border-radius: 12px;
+      padding: 24px;
+      text-align: center;
+    }
+
+    .promo-box h2 {
+      color: #c9a84c;
+      margin-bottom: 16px;
+      font-size: 1.1rem;
+      letter-spacing: 2px;
+    }
+
+    .promo-choices {
+      display: flex;
+      gap: 12px;
+    }
+
+    .promo-choice {
+      width: 72px;
+      height: 72px;
+      font-size: 52px;
+      line-height: 72px;
+      cursor: pointer;
+      border-radius: 8px;
+      background: #1a1a2e;
+      border: 2px solid #2a3a5e;
+      text-align: center;
+      transition: all 0.15s;
+    }
+
+    .promo-choice:hover {
+      border-color: #c9a84c;
+      background: #2a3a5e;
+      transform: scale(1.08);
+    }
+  </style>
+</head>
+<body>
+
+<h1>Chess IA</h1>
+
+<div class="game-container">
+
+  <!-- Board -->
+  <div class="board-wrapper">
+    <div id="board"></div>
+    <div class="file-labels" id="file-labels"></div>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+
+    <!-- Status -->
+    <div class="card">
+      <h3>Partie</h3>
+      <div id="status-text">Chargement…</div>
+      <div class="turn-indicator">
+        <div class="turn-dot" id="turn-dot"></div>
+        <span id="turn-label" style="font-size:0.85rem;color:#aaa"></span>
+      </div>
+      <div class="info-row" style="margin-top:8px">
+        <span id="move-counter"></span>
+        <span id="halfmove-clock"></span>
+      </div>
+    </div>
+
+    <!-- Move history -->
+    <div class="card">
+      <h3>Historique</h3>
+      <div id="move-history"></div>
+    </div>
+
+    <!-- Controls -->
+    <div class="card">
+      <h3>Nouvelle partie</h3>
+      <div class="color-select" style="margin-bottom:10px">
+        <div class="color-btn active" id="btn-white" onclick="selectColor('white')">♔ Blancs</div>
+        <div class="color-btn"        id="btn-black" onclick="selectColor('black')">♚ Noirs</div>
+      </div>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="newGame()">Nouvelle partie</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Promotion modal -->
+<div id="promo-modal">
+  <div class="promo-box">
+    <h2>PROMOTION</h2>
+    <div class="promo-choices" id="promo-choices"></div>
+  </div>
+</div>
+
+<script>
+// ===================================================================
+// Pièces Unicode
+// ===================================================================
+const PIECES = {
+  6: '♔', 5: '♕', 4: '♖', 3: '♗', 2: '♘', 1: '♙',
+ -6: '♚',-5: '♛',-4: '♜',-3: '♝',-2: '♞',-1: '♟',
+};
+
+// ===================================================================
+// État local
+// ===================================================================
+let state        = null;   // dernier état reçu du serveur
+let selectedSq   = null;   // case sélectionnée
+let legalTargets = [];     // destinations légales depuis selectedSq
+let pendingPromo = null;   // {fromSq, toSq} en attente de choix de promotion
+let chosenColor  = 'white';
+let moveLog      = [];     // liste des coups joués (uci strings)
+
+// ===================================================================
+// Initialisation
+// ===================================================================
+function init() {
+  buildBoard();
+  buildFileLabels();
+  fetchState();
+}
+
+function buildFileLabels() {
+  const el = document.getElementById('file-labels');
+  const files = ['a','b','c','d','e','f','g','h'];
+  // On met un espaceur pour la colonne des rangs
+  const spacer = document.createElement('div');
+  spacer.style.width = '20px';
+  el.appendChild(spacer);
+  files.forEach(f => {
+    const div = document.createElement('div');
+    div.className = 'file-label';
+    div.textContent = f;
+    el.appendChild(div);
+  });
+}
+
+function buildBoard() {
+  const boardEl = document.getElementById('board');
+  boardEl.innerHTML = '';
+  // Render from rank 8 down to rank 1 (row 7 → 0)
+  for (let row = 7; row >= 0; row--) {
+    for (let col = 0; col < 8; col++) {
+      const sq = row * 8 + col;
+      const div = document.createElement('div');
+      div.className = 'square ' + ((row + col) % 2 === 0 ? 'dark' : 'light');
+      div.dataset.sq = sq;
+      div.addEventListener('click', () => onSquareClick(sq));
+      boardEl.appendChild(div);
+    }
+  }
+}
+
+// ===================================================================
+// Fetch & Render
+// ===================================================================
+async function fetchState() {
+  const res = await fetch('/api/state');
+  state = await res.json();
+  render(state);
+}
+
+function render(s) {
+  clearHighlights();
+
+  // Place pieces
+  for (let sq = 0; sq < 64; sq++) {
+    const el = getSquareEl(sq);
+    const p = s.pieces[String(sq)];
+    el.innerHTML = p ? `<span class="piece">${PIECES[p]}</span>` : '';
+  }
+
+  // Last move highlight
+  if (s.last_move) {
+    const files = 'abcdefgh';
+    const from_col = files.indexOf(s.last_move[0]);
+    const from_row = parseInt(s.last_move[1]) - 1;
+    const to_col   = files.indexOf(s.last_move[2]);
+    const to_row   = parseInt(s.last_move[3]) - 1;
+    getSquareEl(from_row * 8 + from_col).classList.add('last-from');
+    getSquareEl(to_row   * 8 + to_col  ).classList.add('last-to');
+  }
+
+  // Check highlight
+  if (s.in_check) {
+    const kingPiece = s.turn === 'white' ? 6 : -6;
+    for (const [sqStr, p] of Object.entries(s.pieces)) {
+      if (p === kingPiece) {
+        getSquareEl(parseInt(sqStr)).classList.add('in-check');
+        break;
+      }
+    }
+  }
+
+  // Selected square & legal move targets
+  if (selectedSq !== null) {
+    getSquareEl(selectedSq).classList.add('selected');
+    legalTargets.forEach(uci => {
+      const to_col = 'abcdefgh'.indexOf(uci[2]);
+      const to_row = parseInt(uci[3]) - 1;
+      const sq = to_row * 8 + to_col;
+      const hasPiece = !!s.pieces[String(sq)];
+      getSquareEl(sq).classList.add(hasPiece ? 'legal-capture' : 'legal-move');
+    });
+  }
+
+  // Status bar
+  updateStatus(s);
+
+  // Move history
+  updateHistory(s);
+}
+
+function clearHighlights() {
+  document.querySelectorAll('.square').forEach(el => {
+    el.classList.remove('selected','last-from','last-to','in-check','legal-move','legal-capture');
+  });
+}
+
+function getSquareEl(sq) {
+  return document.querySelector(`.square[data-sq="${sq}"]`);
+}
+
+// ===================================================================
+// Status
+// ===================================================================
+function updateStatus(s) {
+  const txt = document.getElementById('status-text');
+  const dot = document.getElementById('turn-dot');
+  const lbl = document.getElementById('turn-label');
+
+  if (s.result) {
+    txt.className = 'gameover';
+    if (s.result === 'white') txt.textContent = '♔ Les Blancs gagnent !';
+    else if (s.result === 'black') txt.textContent = '♚ Les Noirs gagnent !';
+    else txt.textContent = '½–½  Nulle';
+    dot.className = 'turn-dot';
+    lbl.textContent = 'Partie terminée';
+  } else if (s.in_check) {
+    txt.className = 'check';
+    txt.textContent = '⚠ Échec !';
+    dot.className = 'turn-dot ' + (s.turn === 'white' ? 'white-turn' : 'black-turn');
+    lbl.textContent = s.turn === 'white' ? 'Blancs jouent' : 'Noirs jouent';
+  } else {
+    txt.className = '';
+    const isPlayerTurn = s.turn === s.player_color;
+    txt.textContent = isPlayerTurn ? 'À votre tour' : 'IA réfléchit…';
+    dot.className = 'turn-dot ' + (s.turn === 'white' ? 'white-turn' : 'black-turn');
+    lbl.textContent = s.turn === 'white' ? 'Blancs jouent' : 'Noirs jouent';
+  }
+
+  document.getElementById('move-counter').textContent = `Coup ${s.fullmove}`;
+  document.getElementById('halfmove-clock').textContent = `Horloge 50: ${s.halfmove_clock}/100`;
+}
+
+// ===================================================================
+// Move history
+// ===================================================================
+function updateHistory(s) {
+  // Rebuild full move log from move_history on server would require extra endpoint.
+  // Instead, we track locally via the last_move and a counter.
+  const el = document.getElementById('move-history');
+
+  // On ajoute le dernier coup s'il est nouveau
+  if (s.last_move && (moveLog.length === 0 || moveLog[moveLog.length-1] !== s.last_move)) {
+    moveLog.push(s.last_move);
+  }
+
+  // Render pairs
+  let html = '';
+  for (let i = 0; i < moveLog.length; i += 2) {
+    const num = Math.floor(i / 2) + 1;
+    const white = moveLog[i] || '';
+    const black = moveLog[i+1] || '';
+    html += `<span class="move-pair">
+      <span class="move-num">${num}.</span>
+      <span class="move-uci">${white}</span>
+      ${black ? `<span class="move-uci"> ${black}</span>` : ''}
+    </span>`;
+  }
+  el.innerHTML = html || '<span style="color:#555">Aucun coup joué</span>';
+  el.scrollTop = el.scrollHeight;
+}
+
+// ===================================================================
+// Click handling
+// ===================================================================
+async function onSquareClick(sq) {
+  if (!state || state.result) return;
+
+  // Only allow clicks on player's turn
+  const isPlayerTurn = state.turn === state.player_color;
+  if (!isPlayerTurn) return;
+
+  const piece = state.pieces[String(sq)];
+  const isOwnPiece = piece && (
+    (state.turn === 'white' && piece > 0) ||
+    (state.turn === 'black' && piece < 0)
+  );
+
+  // If a square is already selected
+  if (selectedSq !== null) {
+    const isLegal = legalTargets.some(uci => {
+      const tc = 'abcdefgh'.indexOf(uci[2]);
+      const tr = parseInt(uci[3]) - 1;
+      return tr * 8 + tc === sq;
+    });
+
+    if (isLegal) {
+      await tryMove(selectedSq, sq);
+      return;
+    }
+
+    // Clicked own piece → reselect
+    if (isOwnPiece) {
+      await selectSquare(sq);
+      return;
+    }
+
+    // Clicked elsewhere → deselect
+    selectedSq = null;
+    legalTargets = [];
+    render(state);
+    return;
+  }
+
+  // Select a piece
+  if (isOwnPiece) {
+    await selectSquare(sq);
+  }
+}
+
+async function selectSquare(sq) {
+  selectedSq = sq;
+  const res = await fetch(`/api/legal_moves/${sq}`);
+  const data = await res.json();
+  legalTargets = data.moves;
+  render(state);
+}
+
+async function tryMove(fromSq, toSq) {
+  // Check if promotion is needed
+  const piece = state.pieces[String(fromSq)];
+  const toRow = Math.floor(toSq / 8);
+  const isPawnPromo = (
+    Math.abs(piece) === 1 &&
+    ((piece > 0 && toRow === 7) || (piece < 0 && toRow === 0))
+  );
+
+  if (isPawnPromo) {
+    pendingPromo = { fromSq, toSq };
+    showPromoModal(piece > 0 ? 'white' : 'black');
+    return;
+  }
+
+  await sendMove(fromSq, toSq, '');
+}
+
+async function sendMove(fromSq, toSq, promoChar) {
+  selectedSq = null;
+  legalTargets = [];
+
+  const files = 'abcdefgh';
+  const uci = files[fromSq % 8] + (Math.floor(fromSq / 8) + 1)
+            + files[toSq   % 8] + (Math.floor(toSq   / 8) + 1)
+            + promoChar;
+
+  const res = await fetch('/api/move', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uci }),
+  });
+
+  if (res.ok) {
+    state = await res.json();
+    render(state);
+  } else {
+    const err = await res.json();
+    console.warn('Coup invalide:', err.error);
+    render(state);
+  }
+}
+
+// ===================================================================
+// Promotion Modal
+// ===================================================================
+function showPromoModal(color) {
+  const modal = document.getElementById('promo-modal');
+  const choices = document.getElementById('promo-choices');
+  const promos = color === 'white'
+    ? [['♕','q'],['♖','r'],['♗','b'],['♘','n']]
+    : [['♛','q'],['♜','r'],['♝','b'],['♞','n']];
+
+  choices.innerHTML = '';
+  promos.forEach(([sym, ch]) => {
+    const div = document.createElement('div');
+    div.className = 'promo-choice';
+    div.textContent = sym;
+    div.onclick = () => {
+      modal.classList.remove('visible');
+      if (pendingPromo) {
+        sendMove(pendingPromo.fromSq, pendingPromo.toSq, ch);
+        pendingPromo = null;
+      }
+    };
+    choices.appendChild(div);
+  });
+
+  modal.classList.add('visible');
+}
+
+// ===================================================================
+// New Game
+// ===================================================================
+function selectColor(color) {
+  chosenColor = color;
+  document.getElementById('btn-white').classList.toggle('active', color === 'white');
+  document.getElementById('btn-black').classList.toggle('active', color === 'black');
+}
+
+async function newGame() {
+  selectedSq = null;
+  legalTargets = [];
+  pendingPromo = null;
+  moveLog = [];
+
+  const res = await fetch('/api/reset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ color: chosenColor }),
+  });
+  state = await res.json();
+  render(state);
+}
+
+// ===================================================================
+// Start
+// ===================================================================
+init();
+</script>
+</body>
+</html>
