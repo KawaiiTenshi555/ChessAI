@@ -38,7 +38,7 @@
       justify-content: center;
     }
 
-    /* ===== Board wrapper (labels + board) ===== */
+    /* ===== Board wrapper ===== */
     .board-wrapper {
       display: flex;
       flex-direction: column;
@@ -93,16 +93,13 @@
 
     .square.light { background: #f0d9b5; }
     .square.dark  { background: #b58863; }
-
     .square:hover { filter: brightness(1.1); }
 
-    /* Highlights */
     .square.selected        { background: #7fc97f !important; }
     .square.last-from       { background: rgba(255, 215, 0, 0.5) !important; }
     .square.last-to         { background: rgba(255, 215, 0, 0.7) !important; }
     .square.in-check        { background: rgba(220, 50, 50, 0.75) !important; }
 
-    /* Legal move dots */
     .square.legal-move::after {
       content: '';
       position: absolute;
@@ -139,8 +136,8 @@
       display: flex;
       flex-direction: column;
       gap: 16px;
-      min-width: 220px;
-      max-width: 260px;
+      min-width: 240px;
+      max-width: 280px;
     }
 
     .card {
@@ -166,7 +163,7 @@
       line-height: 1.5;
     }
 
-    #status-text.check   { color: #ff6b6b; }
+    #status-text.check    { color: #ff6b6b; }
     #status-text.gameover { color: #c9a84c; font-size: 1.15rem; font-weight: 700; }
 
     .turn-indicator {
@@ -188,7 +185,7 @@
 
     /* Move history */
     #move-history {
-      max-height: 160px;
+      max-height: 130px;
       overflow-y: auto;
       font-size: 0.82rem;
       color: #aaa;
@@ -206,33 +203,29 @@
     .controls { display: flex; flex-direction: column; gap: 8px; }
 
     .btn {
-      padding: 10px 14px;
+      padding: 9px 14px;
       border: none;
       border-radius: 7px;
       cursor: pointer;
-      font-size: 0.9rem;
+      font-size: 0.88rem;
       font-weight: 600;
       letter-spacing: 0.5px;
       transition: all 0.15s;
     }
 
-    .btn-primary {
-      background: #c9a84c;
-      color: #1a1a2e;
-    }
-    .btn-primary:hover { background: #e0c070; transform: translateY(-1px); }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
-    .btn-secondary {
-      background: #2a3a5e;
-      color: #e0e0e0;
-    }
-    .btn-secondary:hover { background: #3a4e7a; }
+    .btn-primary   { background: #c9a84c; color: #1a1a2e; }
+    .btn-primary:hover:not(:disabled) { background: #e0c070; transform: translateY(-1px); }
+
+    .btn-secondary { background: #2a3a5e; color: #e0e0e0; }
+    .btn-secondary:hover:not(:disabled) { background: #3a4e7a; }
+
+    .btn-danger    { background: #7a2a2e; color: #e0e0e0; }
+    .btn-danger:hover:not(:disabled) { background: #a03040; }
 
     /* Color selector */
-    .color-select {
-      display: flex;
-      gap: 8px;
-    }
+    .color-select { display: flex; gap: 8px; }
 
     .color-btn {
       flex: 1;
@@ -256,6 +249,146 @@
       justify-content: space-between;
       font-size: 0.78rem;
       color: #666;
+    }
+
+    /* ===== Agent selection ===== */
+    .agent-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .agent-btn {
+      padding: 8px 12px;
+      border: 2px solid #2a3a5e;
+      border-radius: 7px;
+      background: #1a1a2e;
+      color: #aaa;
+      cursor: pointer;
+      font-size: 0.83rem;
+      font-weight: 500;
+      text-align: left;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .agent-btn:hover    { border-color: #c9a84c80; color: #e0e0e0; }
+    .agent-btn.selected { border-color: #c9a84c; color: #c9a84c; background: #1e2a40; }
+
+    .agent-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #2a3a5e;
+      flex-shrink: 0;
+    }
+
+    .agent-btn.selected .agent-dot { background: #c9a84c; }
+
+    /* ===== Training ===== */
+    .train-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .train-row label {
+      font-size: 0.78rem;
+      color: #888;
+      white-space: nowrap;
+    }
+
+    .train-row input[type=number] {
+      width: 80px;
+      padding: 5px 8px;
+      background: #1a1a2e;
+      border: 1px solid #2a3a5e;
+      border-radius: 5px;
+      color: #e0e0e0;
+      font-size: 0.83rem;
+    }
+
+    .progress-bar-wrap {
+      height: 6px;
+      background: #2a3a5e;
+      border-radius: 3px;
+      margin: 8px 0 6px;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: #c9a84c;
+      border-radius: 3px;
+      transition: width 0.3s ease;
+      width: 0%;
+    }
+
+    #train-status {
+      font-size: 0.78rem;
+      color: #888;
+      min-height: 18px;
+    }
+
+    /* ===== Agent info ===== */
+    .agent-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .stat-box {
+      background: #1a1a2e;
+      border: 1px solid #2a3a5e;
+      border-radius: 6px;
+      padding: 6px 8px;
+    }
+
+    .stat-label {
+      font-size: 0.68rem;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .stat-value {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #c9a84c;
+      margin-top: 2px;
+    }
+
+    /* ===== Toast ===== */
+    #toast-container {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 200;
+    }
+
+    .toast {
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      font-weight: 500;
+      max-width: 320px;
+      animation: toast-in 0.2s ease;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    }
+
+    .toast.error   { background: #7a2a2e; color: #ffcdd2; border-left: 4px solid #ff5252; }
+    .toast.success { background: #1e4a2a; color: #c8e6c9; border-left: 4px solid #66bb6a; }
+    .toast.info    { background: #1a3a5e; color: #bbdefb; border-left: 4px solid #42a5f5; }
+
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateX(40px); }
+      to   { opacity: 1; transform: translateX(0); }
     }
 
     /* ===== Promotion Modal ===== */
@@ -286,10 +419,7 @@
       letter-spacing: 2px;
     }
 
-    .promo-choices {
-      display: flex;
-      gap: 12px;
-    }
+    .promo-choices { display: flex; gap: 12px; }
 
     .promo-choice {
       width: 72px;
@@ -340,6 +470,47 @@
       </div>
     </div>
 
+    <!-- Agent selection -->
+    <div class="card">
+      <h3>Agent IA</h3>
+      <div class="agent-grid" id="agent-grid">
+        <!-- filled by JS -->
+      </div>
+    </div>
+
+    <!-- Agent info -->
+    <div class="card" id="agent-info-card" style="display:none">
+      <h3>Stats agent</h3>
+      <div class="agent-stats">
+        <div class="stat-box">
+          <div class="stat-label">Epsilon</div>
+          <div class="stat-value" id="stat-epsilon">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Steps</div>
+          <div class="stat-value" id="stat-steps">—</div>
+        </div>
+        <div class="stat-box" style="grid-column:1/-1">
+          <div class="stat-label">Q-table (états)</div>
+          <div class="stat-value" id="stat-qtable">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Training -->
+    <div class="card" id="train-card" style="display:none">
+      <h3>Entraînement</h3>
+      <div class="train-row">
+        <label for="train-episodes">Épisodes :</label>
+        <input type="number" id="train-episodes" value="200" min="1" max="100000">
+      </div>
+      <button class="btn btn-secondary" id="btn-train" onclick="startTraining()">Entraîner</button>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar-fill" id="progress-fill"></div>
+      </div>
+      <div id="train-status">Prêt</div>
+    </div>
+
     <!-- Move history -->
     <div class="card">
       <h3>Historique</h3>
@@ -369,24 +540,68 @@
   </div>
 </div>
 
+<!-- Toast container -->
+<div id="toast-container"></div>
+
 <script>
+// ===================================================================
+// Toast notifications
+// ===================================================================
+function showToast(msg, type = 'info', duration = 3500) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), duration);
+}
+
+// ===================================================================
+// API wrapper with error handling
+// ===================================================================
+async function apiFetch(path, options = {}) {
+  try {
+    const res = await fetch(path, options);
+    const data = await res.json();
+    if (!res.ok) {
+      const msg = data.error || `Erreur ${res.status}`;
+      showToast(msg, 'error');
+      return null;
+    }
+    return data;
+  } catch (e) {
+    showToast(`Connexion impossible : ${e.message}`, 'error');
+    return null;
+  }
+}
+
 // ===================================================================
 // Pièces Unicode
 // ===================================================================
 const PIECES = {
-  6: '♔', 5: '♕', 4: '♖', 3: '♗', 2: '♘', 1: '♙',
- -6: '♚',-5: '♛',-4: '♜',-3: '♝',-2: '♞',-1: '♟',
+  '6': '♔', '5': '♕', '4': '♖', '3': '♗', '2': '♘', '1': '♙',
+  '-6': '♚', '-5': '♛', '-4': '♜', '-3': '♝', '-2': '♞', '-1': '♟',
 };
+
+const AGENT_DEFS = [
+  { id: 'random',         label: 'Aléatoire',     icon: '🎲' },
+  { id: 'sarsa',          label: 'SARSA',          icon: '📈' },
+  { id: 'q_learning',     label: 'Q-Learning',     icon: '📊' },
+  { id: 'expected_sarsa', label: 'Expected SARSA', icon: '📉' },
+  { id: 'monte_carlo',    label: 'Monte Carlo',    icon: '🎰' },
+];
 
 // ===================================================================
 // État local
 // ===================================================================
-let state        = null;   // dernier état reçu du serveur
-let selectedSq   = null;   // case sélectionnée
-let legalTargets = [];     // destinations légales depuis selectedSq
-let pendingPromo = null;   // {fromSq, toSq} en attente de choix de promotion
+let state        = null;
+let selectedSq   = null;
+let legalTargets = [];
+let pendingPromo = null;
 let chosenColor  = 'white';
-let moveLog      = [];     // liste des coups joués (uci strings)
+let moveLog      = [];
+let currentAgent = 'random';
+let trainingPoll = null;
 
 // ===================================================================
 // Initialisation
@@ -394,17 +609,17 @@ let moveLog      = [];     // liste des coups joués (uci strings)
 function init() {
   buildBoard();
   buildFileLabels();
+  buildAgentGrid();
   fetchState();
 }
 
 function buildFileLabels() {
   const el = document.getElementById('file-labels');
-  const files = ['a','b','c','d','e','f','g','h'];
-  // On met un espaceur pour la colonne des rangs
+  if (!el) return;
   const spacer = document.createElement('div');
   spacer.style.width = '20px';
   el.appendChild(spacer);
-  files.forEach(f => {
+  ['a','b','c','d','e','f','g','h'].forEach(f => {
     const div = document.createElement('div');
     div.className = 'file-label';
     div.textContent = f;
@@ -414,8 +629,8 @@ function buildFileLabels() {
 
 function buildBoard() {
   const boardEl = document.getElementById('board');
+  if (!boardEl) return;
   boardEl.innerHTML = '';
-  // Render from rank 8 down to rank 1 (row 7 → 0)
   for (let row = 7; row >= 0; row--) {
     for (let col = 0; col < 8; col++) {
       const sq = row * 8 + col;
@@ -428,21 +643,139 @@ function buildBoard() {
   }
 }
 
+function buildAgentGrid() {
+  const grid = document.getElementById('agent-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  AGENT_DEFS.forEach(agent => {
+    const btn = document.createElement('button');
+    btn.className = 'agent-btn' + (agent.id === currentAgent ? ' selected' : '');
+    btn.id = `agent-btn-${agent.id}`;
+    btn.innerHTML = `<span class="agent-dot"></span>${agent.icon} ${agent.label}`;
+    btn.onclick = () => selectAgent(agent.id);
+    grid.appendChild(btn);
+  });
+}
+
+// ===================================================================
+// Agent selection
+// ===================================================================
+async function selectAgent(id) {
+  const data = await apiFetch('/api/select_agent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agent: id }),
+  });
+  if (!data) return;
+
+  currentAgent = id;
+  document.querySelectorAll('.agent-btn').forEach(b => b.classList.remove('selected'));
+  const btn = document.getElementById(`agent-btn-${id}`);
+  if (btn) btn.classList.add('selected');
+
+  const isRandom = id === 'random';
+  const infoCard  = document.getElementById('agent-info-card');
+  const trainCard = document.getElementById('train-card');
+  if (infoCard)  infoCard.style.display  = isRandom ? 'none' : '';
+  if (trainCard) trainCard.style.display = isRandom ? 'none' : '';
+
+  if (!isRandom) {
+    updateAgentStats(null); // reset display
+    showToast(`Agent "${id}" sélectionné`, 'success', 2000);
+  }
+
+  // Refresh full state which includes agent info
+  const s = await apiFetch('/api/state');
+  if (s) { state = s; updateAgentStats(s.agent); }
+}
+
+function updateAgentStats(agentInfo) {
+  const epEl = document.getElementById('stat-epsilon');
+  const stEl = document.getElementById('stat-steps');
+  const qtEl = document.getElementById('stat-qtable');
+  if (!epEl || !stEl || !qtEl) return;
+
+  if (!agentInfo) {
+    epEl.textContent = '—';
+    stEl.textContent = '—';
+    qtEl.textContent = '—';
+    return;
+  }
+  epEl.textContent = agentInfo.epsilon !== undefined ? agentInfo.epsilon.toFixed(3) : '—';
+  stEl.textContent = agentInfo.training_steps !== undefined
+    ? agentInfo.training_steps.toLocaleString() : '—';
+  qtEl.textContent = agentInfo.q_table_size !== undefined
+    ? agentInfo.q_table_size.toLocaleString() : '—';
+}
+
+// ===================================================================
+// Training
+// ===================================================================
+async function startTraining() {
+  const episodesEl = document.getElementById('train-episodes');
+  const n = parseInt(episodesEl ? episodesEl.value : 200) || 200;
+
+  const data = await apiFetch('/api/train', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ episodes: n }),
+  });
+  if (!data) return;
+
+  showToast(`Entraînement lancé (${n} épisodes)`, 'info', 2500);
+  const btn = document.getElementById('btn-train');
+  if (btn) btn.disabled = true;
+
+  // Poll training status
+  if (trainingPoll) clearInterval(trainingPoll);
+  trainingPoll = setInterval(pollTrainingStatus, 600);
+}
+
+async function pollTrainingStatus() {
+  const data = await apiFetch('/api/training_status');
+  if (!data) return;
+
+  const fill   = document.getElementById('progress-fill');
+  const status = document.getElementById('train-status');
+  const btn    = document.getElementById('btn-train');
+
+  if (fill)   fill.style.width = `${data.progress || 0}%`;
+  if (status) {
+    if (data.running) {
+      status.textContent = `Épisode ${data.episodes_done} / ${data.total}`;
+    } else if (data.episodes_done > 0) {
+      status.textContent = `Terminé — ${data.episodes_done} épisodes`;
+    }
+  }
+
+  updateAgentStats(data);
+
+  if (!data.running) {
+    if (trainingPoll) { clearInterval(trainingPoll); trainingPoll = null; }
+    if (btn) btn.disabled = false;
+    if (data.episodes_done > 0) showToast('Entraînement terminé !', 'success');
+  }
+}
+
 // ===================================================================
 // Fetch & Render
 // ===================================================================
 async function fetchState() {
-  const res = await fetch('/api/state');
-  state = await res.json();
+  const s = await apiFetch('/api/state');
+  if (!s) return;
+  state = s;
   render(state);
+  if (state.agent) updateAgentStats(state.agent);
 }
 
 function render(s) {
+  if (!s) return;
   clearHighlights();
 
   // Place pieces
   for (let sq = 0; sq < 64; sq++) {
     const el = getSquareEl(sq);
+    if (!el) continue;
     const p = s.pieces[String(sq)];
     el.innerHTML = p ? `<span class="piece">${PIECES[p]}</span>` : '';
   }
@@ -454,8 +787,10 @@ function render(s) {
     const from_row = parseInt(s.last_move[1]) - 1;
     const to_col   = files.indexOf(s.last_move[2]);
     const to_row   = parseInt(s.last_move[3]) - 1;
-    getSquareEl(from_row * 8 + from_col).classList.add('last-from');
-    getSquareEl(to_row   * 8 + to_col  ).classList.add('last-to');
+    const fromEl = getSquareEl(from_row * 8 + from_col);
+    const toEl   = getSquareEl(to_row   * 8 + to_col);
+    if (fromEl) fromEl.classList.add('last-from');
+    if (toEl)   toEl.classList.add('last-to');
   }
 
   // Check highlight
@@ -463,7 +798,8 @@ function render(s) {
     const kingPiece = s.turn === 'white' ? 6 : -6;
     for (const [sqStr, p] of Object.entries(s.pieces)) {
       if (p === kingPiece) {
-        getSquareEl(parseInt(sqStr)).classList.add('in-check');
+        const el = getSquareEl(parseInt(sqStr));
+        if (el) el.classList.add('in-check');
         break;
       }
     }
@@ -471,21 +807,21 @@ function render(s) {
 
   // Selected square & legal move targets
   if (selectedSq !== null) {
-    getSquareEl(selectedSq).classList.add('selected');
+    const selEl = getSquareEl(selectedSq);
+    if (selEl) selEl.classList.add('selected');
     legalTargets.forEach(uci => {
       const to_col = 'abcdefgh'.indexOf(uci[2]);
       const to_row = parseInt(uci[3]) - 1;
       const sq = to_row * 8 + to_col;
       const hasPiece = !!s.pieces[String(sq)];
-      getSquareEl(sq).classList.add(hasPiece ? 'legal-capture' : 'legal-move');
+      const el = getSquareEl(sq);
+      if (el) el.classList.add(hasPiece ? 'legal-capture' : 'legal-move');
     });
   }
 
-  // Status bar
   updateStatus(s);
-
-  // Move history
   updateHistory(s);
+  if (s.agent) updateAgentStats(s.agent);
 }
 
 function clearHighlights() {
@@ -505,12 +841,13 @@ function updateStatus(s) {
   const txt = document.getElementById('status-text');
   const dot = document.getElementById('turn-dot');
   const lbl = document.getElementById('turn-label');
+  if (!txt || !dot || !lbl) return;
 
   if (s.result) {
     txt.className = 'gameover';
-    if (s.result === 'white') txt.textContent = '♔ Les Blancs gagnent !';
+    if (s.result === 'white')      txt.textContent = '♔ Les Blancs gagnent !';
     else if (s.result === 'black') txt.textContent = '♚ Les Noirs gagnent !';
-    else txt.textContent = '½–½  Nulle';
+    else                           txt.textContent = '½–½  Nulle';
     dot.className = 'turn-dot';
     lbl.textContent = 'Partie terminée';
   } else if (s.in_check) {
@@ -526,28 +863,27 @@ function updateStatus(s) {
     lbl.textContent = s.turn === 'white' ? 'Blancs jouent' : 'Noirs jouent';
   }
 
-  document.getElementById('move-counter').textContent = `Coup ${s.fullmove}`;
-  document.getElementById('halfmove-clock').textContent = `Horloge 50: ${s.halfmove_clock}/100`;
+  const mc = document.getElementById('move-counter');
+  const hc = document.getElementById('halfmove-clock');
+  if (mc) mc.textContent = `Coup ${s.fullmove}`;
+  if (hc) hc.textContent = `50: ${s.halfmove_clock}/100`;
 }
 
 // ===================================================================
 // Move history
 // ===================================================================
 function updateHistory(s) {
-  // Rebuild full move log from move_history on server would require extra endpoint.
-  // Instead, we track locally via the last_move and a counter.
   const el = document.getElementById('move-history');
+  if (!el) return;
 
-  // On ajoute le dernier coup s'il est nouveau
   if (s.last_move && (moveLog.length === 0 || moveLog[moveLog.length-1] !== s.last_move)) {
     moveLog.push(s.last_move);
   }
 
-  // Render pairs
   let html = '';
   for (let i = 0; i < moveLog.length; i += 2) {
-    const num = Math.floor(i / 2) + 1;
-    const white = moveLog[i] || '';
+    const num   = Math.floor(i / 2) + 1;
+    const white = moveLog[i]   || '';
     const black = moveLog[i+1] || '';
     html += `<span class="move-pair">
       <span class="move-num">${num}.</span>
@@ -565,7 +901,6 @@ function updateHistory(s) {
 async function onSquareClick(sq) {
   if (!state || state.result) return;
 
-  // Only allow clicks on player's turn
   const isPlayerTurn = state.turn === state.player_color;
   if (!isPlayerTurn) return;
 
@@ -575,7 +910,6 @@ async function onSquareClick(sq) {
     (state.turn === 'black' && piece < 0)
   );
 
-  // If a square is already selected
   if (selectedSq !== null) {
     const isLegal = legalTargets.some(uci => {
       const tc = 'abcdefgh'.indexOf(uci[2]);
@@ -588,20 +922,17 @@ async function onSquareClick(sq) {
       return;
     }
 
-    // Clicked own piece → reselect
     if (isOwnPiece) {
       await selectSquare(sq);
       return;
     }
 
-    // Clicked elsewhere → deselect
     selectedSq = null;
     legalTargets = [];
     render(state);
     return;
   }
 
-  // Select a piece
   if (isOwnPiece) {
     await selectSquare(sq);
   }
@@ -609,14 +940,12 @@ async function onSquareClick(sq) {
 
 async function selectSquare(sq) {
   selectedSq = sq;
-  const res = await fetch(`/api/legal_moves/${sq}`);
-  const data = await res.json();
-  legalTargets = data.moves;
+  const data = await apiFetch(`/api/legal_moves/${sq}`);
+  legalTargets = data ? data.moves : [];
   render(state);
 }
 
 async function tryMove(fromSq, toSq) {
-  // Check if promotion is needed
   const piece = state.pieces[String(fromSq)];
   const toRow = Math.floor(toSq / 8);
   const isPawnPromo = (
@@ -642,18 +971,16 @@ async function sendMove(fromSq, toSq, promoChar) {
             + files[toSq   % 8] + (Math.floor(toSq   / 8) + 1)
             + promoChar;
 
-  const res = await fetch('/api/move', {
+  const data = await apiFetch('/api/move', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ uci }),
   });
 
-  if (res.ok) {
-    state = await res.json();
+  if (data) {
+    state = data;
     render(state);
   } else {
-    const err = await res.json();
-    console.warn('Coup invalide:', err.error);
     render(state);
   }
 }
@@ -662,8 +989,10 @@ async function sendMove(fromSq, toSq, promoChar) {
 // Promotion Modal
 // ===================================================================
 function showPromoModal(color) {
-  const modal = document.getElementById('promo-modal');
+  const modal   = document.getElementById('promo-modal');
   const choices = document.getElementById('promo-choices');
+  if (!modal || !choices) return;
+
   const promos = color === 'white'
     ? [['♕','q'],['♖','r'],['♗','b'],['♘','n']]
     : [['♛','q'],['♜','r'],['♝','b'],['♞','n']];
@@ -691,8 +1020,10 @@ function showPromoModal(color) {
 // ===================================================================
 function selectColor(color) {
   chosenColor = color;
-  document.getElementById('btn-white').classList.toggle('active', color === 'white');
-  document.getElementById('btn-black').classList.toggle('active', color === 'black');
+  const bw = document.getElementById('btn-white');
+  const bb = document.getElementById('btn-black');
+  if (bw) bw.classList.toggle('active', color === 'white');
+  if (bb) bb.classList.toggle('active', color === 'black');
 }
 
 async function newGame() {
@@ -701,13 +1032,16 @@ async function newGame() {
   pendingPromo = null;
   moveLog = [];
 
-  const res = await fetch('/api/reset', {
+  const data = await apiFetch('/api/reset', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ color: chosenColor }),
   });
-  state = await res.json();
-  render(state);
+
+  if (data) {
+    state = data;
+    render(state);
+  }
 }
 
 // ===================================================================
