@@ -1,0 +1,19 @@
+# Core
+gymnasium>=0.29.0
+numpy>=1.24.0
+
+# Deep RL (Phase 2 onwards)
+torch>=2.0.0
+
+# Visualisation & reporting
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Config management
+pyyaml>=6.0
+
+# Testing
+pytest>=7.4.0
+
+# Optional: visual board renderer
+# pygame>=2.5.0
