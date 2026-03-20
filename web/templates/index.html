@@ -361,6 +361,192 @@
       margin-top: 2px;
     }
 
+    /* ===== Training board ===== */
+    .train-view {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .train-view-header {
+      text-align: center;
+    }
+
+    .train-label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: #c9a84c;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      justify-content: center;
+    }
+
+    .train-pulse {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #c9a84c;
+      animation: pulse 1s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.4; transform: scale(0.7); }
+    }
+
+    .train-ep-label {
+      font-size: 0.78rem;
+      color: #888;
+      margin-top: 2px;
+    }
+
+    .train-move-label {
+      font-size: 0.75rem;
+      color: #c9a84c;
+      font-family: monospace;
+      min-height: 18px;
+    }
+
+    #train-board {
+      display: grid;
+      grid-template-columns: repeat(8, 32px);
+      grid-template-rows:    repeat(8, 32px);
+      border: 2px solid #c9a84c60;
+      border-radius: 3px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    }
+
+    .tsq {
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .tsq.light    { background: #f0d9b5; }
+    .tsq.dark     { background: #b58863; }
+    .tsq.t-from   { background: rgba(255, 215, 0, 0.55) !important; }
+    .tsq.t-to     { background: rgba(255, 215, 0, 0.75) !important; }
+
+    /* ===== Hyperparams ===== */
+    .param-row {
+      margin-bottom: 10px;
+    }
+
+    .param-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 4px;
+    }
+
+    .param-label {
+      font-size: 0.80rem;
+      color: #c9a84c;
+      font-weight: 600;
+    }
+
+    .param-value-display {
+      font-size: 0.80rem;
+      color: #e0e0e0;
+      font-weight: 600;
+      min-width: 52px;
+      text-align: right;
+    }
+
+    .param-desc {
+      font-size: 0.70rem;
+      color: #555;
+      margin-bottom: 4px;
+    }
+
+    .param-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .param-slider {
+      flex: 1;
+      -webkit-appearance: none;
+      height: 4px;
+      border-radius: 2px;
+      background: #2a3a5e;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .param-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #c9a84c;
+      cursor: pointer;
+      border: 2px solid #1a1a2e;
+    }
+
+    .param-num {
+      width: 68px;
+      padding: 4px 6px;
+      background: #1a1a2e;
+      border: 1px solid #2a3a5e;
+      border-radius: 5px;
+      color: #e0e0e0;
+      font-size: 0.78rem;
+      text-align: right;
+    }
+
+    .param-bool-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .param-toggle {
+      position: relative;
+      width: 36px;
+      height: 20px;
+    }
+
+    .param-toggle input { opacity: 0; width: 0; height: 0; }
+
+    .param-toggle-track {
+      position: absolute;
+      inset: 0;
+      background: #2a3a5e;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .param-toggle input:checked + .param-toggle-track { background: #c9a84c; }
+
+    .param-toggle-track::after {
+      content: '';
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: white;
+      top: 3px;
+      left: 3px;
+      transition: transform 0.2s;
+    }
+
+    .param-toggle input:checked + .param-toggle-track::after {
+      transform: translateX(16px);
+    }
+
     /* ===== Toast ===== */
     #toast-container {
       position: fixed;
@@ -453,6 +639,19 @@
     <div class="file-labels" id="file-labels"></div>
   </div>
 
+  <!-- Training live board (caché par défaut) -->
+  <div class="train-view" id="train-view" style="display:none">
+    <div class="train-view-header">
+      <div class="train-label">
+        <span class="train-pulse"></span>
+        Entraînement live
+      </div>
+      <div class="train-ep-label" id="train-ep-label">Épisode 0</div>
+      <div class="train-move-label" id="train-move-label">—</div>
+    </div>
+    <div id="train-board"></div>
+  </div>
+
   <!-- Sidebar -->
   <div class="sidebar">
 
@@ -497,6 +696,17 @@
       </div>
     </div>
 
+    <!-- Hyperparameters -->
+    <div class="card" id="hyperparam-card" style="display:none">
+      <h3>Hyperparamètres</h3>
+      <div id="hyperparam-body">
+        <!-- rempli par JS -->
+      </div>
+      <button class="btn btn-secondary" style="width:100%;margin-top:4px" onclick="applyHyperparams()">
+        Appliquer
+      </button>
+    </div>
+
     <!-- Training -->
     <div class="card" id="train-card" style="display:none">
       <h3>Entraînement</h3>
@@ -504,7 +714,19 @@
         <label for="train-episodes">Épisodes :</label>
         <input type="number" id="train-episodes" value="200" min="1" max="100000">
       </div>
-      <button class="btn btn-secondary" id="btn-train" onclick="startTraining()">Entraîner</button>
+      <div class="param-row" style="margin-top:6px">
+        <div class="param-header">
+          <span class="param-label">Vitesse visualisation</span>
+          <span class="param-value-display" id="viz-delay-display">0 ms/coup</span>
+        </div>
+        <div class="param-desc">0 = max vitesse · plus haut = plus lisible (ralentit l'entraînement)</div>
+        <div class="param-control">
+          <input type="range" class="param-slider" id="viz-delay-slider"
+                 min="0" max="500" step="10" value="0"
+                 oninput="onVizDelayChange(this.value)">
+        </div>
+      </div>
+      <button class="btn btn-secondary" id="btn-train" onclick="startTraining()" style="margin-top:8px">Entraîner</button>
       <div class="progress-bar-wrap">
         <div class="progress-bar-fill" id="progress-fill"></div>
       </div>
@@ -658,6 +880,161 @@ function buildAgentGrid() {
 }
 
 // ===================================================================
+// Training live board
+// ===================================================================
+function buildTrainBoard() {
+  const el = document.getElementById('train-board');
+  if (!el || el.children.length === 64) return;
+  el.innerHTML = '';
+  for (let row = 7; row >= 0; row--) {
+    for (let col = 0; col < 8; col++) {
+      const sq  = row * 8 + col;
+      const div = document.createElement('div');
+      div.className = 'tsq ' + ((row + col) % 2 === 0 ? 'dark' : 'light');
+      div.dataset.tsq = sq;
+      el.appendChild(div);
+    }
+  }
+}
+
+function renderTrainBoard(pieces, lastMove) {
+  buildTrainBoard();
+
+  // Clear
+  document.querySelectorAll('.tsq').forEach(el => {
+    el.classList.remove('t-from', 't-to');
+    el.textContent = '';
+  });
+
+  // Pieces
+  for (const [sqStr, p] of Object.entries(pieces || {})) {
+    const el = document.querySelector(`.tsq[data-tsq="${sqStr}"]`);
+    if (el) el.textContent = PIECES[String(p)] || '';
+  }
+
+  // Last move highlight
+  if (lastMove && lastMove.length >= 4) {
+    const files = 'abcdefgh';
+    const fc = files.indexOf(lastMove[0]), fr = parseInt(lastMove[1]) - 1;
+    const tc = files.indexOf(lastMove[2]), tr = parseInt(lastMove[3]) - 1;
+    const fromEl = document.querySelector(`.tsq[data-tsq="${fr * 8 + fc}"]`);
+    const toEl   = document.querySelector(`.tsq[data-tsq="${tr * 8 + tc}"]`);
+    if (fromEl) fromEl.classList.add('t-from');
+    if (toEl)   toEl.classList.add('t-to');
+  }
+
+  // Labels
+  const epLbl = document.getElementById('train-ep-label');
+  const mvLbl = document.getElementById('train-move-label');
+  if (epLbl) epLbl.textContent = `Épisode ${_trainEpisode} / ${_trainTotal}`;
+  if (mvLbl) mvLbl.textContent = lastMove || '—';
+}
+
+let _trainEpisode = 0;
+let _trainTotal   = 0;
+
+// ===================================================================
+// Hyperparameters schema & UI
+// ===================================================================
+const PARAM_SCHEMA = {
+  alpha:         { label: 'Alpha (α)',   min: 0.001, max: 1.0,  step: 0.001,  desc: 'Taux d\'apprentissage' },
+  gamma:         { label: 'Gamma (γ)',   min: 0.0,   max: 1.0,  step: 0.001,  desc: 'Facteur de décompte' },
+  epsilon:       { label: 'Epsilon (ε)', min: 0.0,   max: 1.0,  step: 0.01,   desc: 'Taux d\'exploration initial' },
+  epsilon_min:   { label: 'ε minimum',  min: 0.0,   max: 0.5,  step: 0.001,  desc: 'Exploration minimale' },
+  epsilon_decay: { label: 'ε decay',    min: 0.9,   max: 1.0,  step: 0.0001, desc: 'Décroissance par épisode' },
+  first_visit:   { label: 'First Visit', type: 'bool',          desc: 'N\'utiliser que la 1ère visite (s,a)' },
+};
+
+// Stocke les valeurs en cours d'édition avant Apply
+let _pendingParams = {};
+
+async function loadHyperparams() {
+  const data = await apiFetch('/api/hyperparams');
+  if (!data) return;
+  buildHyperparamUI(data.params);
+}
+
+function buildHyperparamUI(params) {
+  const body = document.getElementById('hyperparam-body');
+  if (!body) return;
+  body.innerHTML = '';
+  _pendingParams = { ...params };
+
+  for (const [key, val] of Object.entries(params)) {
+    const schema = PARAM_SCHEMA[key];
+    if (!schema) continue;
+
+    if (schema.type === 'bool') {
+      // Toggle switch
+      const row = document.createElement('div');
+      row.className = 'param-bool-row';
+      row.innerHTML = `
+        <div>
+          <span class="param-label">${schema.label}</span>
+          <div class="param-desc">${schema.desc}</div>
+        </div>
+        <label class="param-toggle">
+          <input type="checkbox" id="param-${key}" ${val ? 'checked' : ''}>
+          <span class="param-toggle-track"></span>
+        </label>`;
+      row.querySelector(`#param-${key}`).addEventListener('change', e => {
+        _pendingParams[key] = e.target.checked;
+      });
+      body.appendChild(row);
+    } else {
+      // Slider + number input
+      const row = document.createElement('div');
+      row.className = 'param-row';
+      const decimals = String(schema.step).includes('.') ? String(schema.step).split('.')[1].length : 0;
+      row.innerHTML = `
+        <div class="param-header">
+          <span class="param-label">${schema.label}</span>
+          <span class="param-value-display" id="param-display-${key}">${Number(val).toFixed(decimals)}</span>
+        </div>
+        <div class="param-desc">${schema.desc}</div>
+        <div class="param-control">
+          <input type="range"  class="param-slider" id="param-slider-${key}"
+                 min="${schema.min}" max="${schema.max}" step="${schema.step}" value="${val}">
+          <input type="number" class="param-num"    id="param-num-${key}"
+                 min="${schema.min}" max="${schema.max}" step="${schema.step}" value="${Number(val).toFixed(decimals)}">
+        </div>`;
+
+      const slider  = row.querySelector(`#param-slider-${key}`);
+      const numIn   = row.querySelector(`#param-num-${key}`);
+      const display = row.querySelector(`#param-display-${key}`);
+
+      slider.addEventListener('input', () => {
+        const v = parseFloat(slider.value);
+        numIn.value       = v.toFixed(decimals);
+        display.textContent = v.toFixed(decimals);
+        _pendingParams[key] = v;
+      });
+      numIn.addEventListener('change', () => {
+        let v = parseFloat(numIn.value);
+        v = Math.min(schema.max, Math.max(schema.min, v));
+        slider.value        = v;
+        numIn.value         = v.toFixed(decimals);
+        display.textContent = v.toFixed(decimals);
+        _pendingParams[key] = v;
+      });
+
+      body.appendChild(row);
+    }
+  }
+}
+
+async function applyHyperparams() {
+  const data = await apiFetch('/api/hyperparams', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(_pendingParams),
+  });
+  if (!data) return;
+  buildHyperparamUI(data.params);  // re-sync depuis le serveur
+  showToast('Paramètres appliqués', 'success', 2000);
+}
+
+// ===================================================================
 // Agent selection
 // ===================================================================
 async function selectAgent(id) {
@@ -674,13 +1051,16 @@ async function selectAgent(id) {
   if (btn) btn.classList.add('selected');
 
   const isRandom = id === 'random';
-  const infoCard  = document.getElementById('agent-info-card');
-  const trainCard = document.getElementById('train-card');
+  const infoCard   = document.getElementById('agent-info-card');
+  const trainCard  = document.getElementById('train-card');
+  const paramCard  = document.getElementById('hyperparam-card');
   if (infoCard)  infoCard.style.display  = isRandom ? 'none' : '';
   if (trainCard) trainCard.style.display = isRandom ? 'none' : '';
+  if (paramCard) paramCard.style.display = isRandom ? 'none' : '';
 
   if (!isRandom) {
-    updateAgentStats(null); // reset display
+    updateAgentStats(null);
+    loadHyperparams();
     showToast(`Agent "${id}" sélectionné`, 'success', 2000);
   }
 
@@ -711,41 +1091,61 @@ function updateAgentStats(agentInfo) {
 // ===================================================================
 // Training
 // ===================================================================
+function onVizDelayChange(val) {
+  const display = document.getElementById('viz-delay-display');
+  if (display) display.textContent = val == 0 ? 'max vitesse' : `${val} ms/coup`;
+}
+
 async function startTraining() {
   const episodesEl = document.getElementById('train-episodes');
-  const n = parseInt(episodesEl ? episodesEl.value : 200) || 200;
+  const delayEl    = document.getElementById('viz-delay-slider');
+  const n     = parseInt(episodesEl ? episodesEl.value : 200) || 200;
+  const delay = parseInt(delayEl ? delayEl.value : 0) || 0;
 
   const data = await apiFetch('/api/train', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ episodes: n }),
+    body: JSON.stringify({ episodes: n, viz_delay: delay }),
   });
   if (!data) return;
 
-  showToast(`Entraînement lancé (${n} épisodes)`, 'info', 2500);
+  const label = delay > 0 ? ` · ${delay}ms/coup` : ' · max vitesse';
+  showToast(`Entraînement lancé (${n} épisodes${label})`, 'info', 2500);
   const btn = document.getElementById('btn-train');
   if (btn) btn.disabled = true;
 
-  // Poll training status
+  // Polling rapide quand un délai est activé, sinon 400ms suffit
+  const pollInterval = delay > 0 ? Math.max(50, delay / 2) : 400;
   if (trainingPoll) clearInterval(trainingPoll);
-  trainingPoll = setInterval(pollTrainingStatus, 600);
+  trainingPoll = setInterval(pollTrainingStatus, pollInterval);
 }
 
 async function pollTrainingStatus() {
   const data = await apiFetch('/api/training_status');
   if (!data) return;
 
-  const fill   = document.getElementById('progress-fill');
-  const status = document.getElementById('train-status');
-  const btn    = document.getElementById('btn-train');
+  const fill      = document.getElementById('progress-fill');
+  const status    = document.getElementById('train-status');
+  const btn       = document.getElementById('btn-train');
+  const trainView = document.getElementById('train-view');
 
-  if (fill)   fill.style.width = `${data.progress || 0}%`;
+  if (fill) fill.style.width = `${data.progress || 0}%`;
   if (status) {
     if (data.running) {
       status.textContent = `Épisode ${data.episodes_done} / ${data.total}`;
     } else if (data.episodes_done > 0) {
       status.textContent = `Terminé — ${data.episodes_done} épisodes`;
     }
+  }
+
+  // Live board
+  _trainEpisode = data.episodes_done || 0;
+  _trainTotal   = data.total || 0;
+  if (data.running && data.board && Object.keys(data.board).length > 0) {
+    if (trainView) trainView.style.display = '';
+    renderTrainBoard(data.board, data.train_last_move);
+  } else if (!data.running) {
+    if (trainView) trainView.style.display = 'none';
   }
 
   updateAgentStats(data);

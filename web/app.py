@@ -253,14 +253,19 @@ def train_agent():
     data = request.get_json(force=True) or {}
     n_episodes = int(data.get("episodes", 100))
 
-    def _train():
-        from chess_env.chess_env import ChessEnv
-        training_status["running"]      = True
-        training_status["total"]        = n_episodes
-        training_status["progress"]     = 0
-        training_status["episodes_done"] = 0
+    viz_delay = max(0.0, float(data.get("viz_delay", 0))) / 1000.0  # ms → s
 
-        env = ChessEnv(render_mode=None)
+    def _train():
+        import time
+        from chess_env.chess_env import ChessEnv
+        training_status["running"]         = True
+        training_status["total"]           = n_episodes
+        training_status["progress"]        = 0
+        training_status["episodes_done"]   = 0
+        training_status["board"]           = {}
+        training_status["train_last_move"] = None
+
+        env   = ChessEnv(render_mode=None)
         agent = current_agent
 
         for ep in range(n_episodes):
@@ -278,11 +283,26 @@ def train_agent():
                 obs, info = next_obs, next_info
                 agent.training_steps += 1
 
+                # Snapshot pour la visualisation live
+                bd = env.board
+                training_status["board"] = {
+                    str(sq): int(bd.get_piece(sq))
+                    for sq in range(64) if bd.get_piece(sq) != 0
+                }
+                training_status["train_last_move"] = (
+                    bd.move_history[-1].to_uci() if bd.move_history else None
+                )
+
+                if viz_delay > 0:
+                    time.sleep(viz_delay)
+
             agent.on_episode_end(ep, 0.0, 0)
             training_status["progress"]      = int((ep + 1) / n_episodes * 100)
             training_status["episodes_done"] = ep + 1
 
-        training_status["running"] = False
+        training_status["running"]         = False
+        training_status["board"]           = {}
+        training_status["train_last_move"] = None
 
     threading.Thread(target=_train, daemon=True).start()
     return jsonify({"started": True, "episodes": n_episodes, "agent": agent_name})
@@ -296,6 +316,37 @@ def get_training_status():
         info["training_steps"] = current_agent.training_steps
         info["q_table_size"]   = getattr(current_agent, "q_table_size", 0)
     return jsonify(info)
+
+
+@app.route("/api/hyperparams", methods=["GET"])
+def get_hyperparams():
+    if current_agent is None:
+        return jsonify({"error": "Aucun agent sélectionné"}), 400
+    return jsonify({"agent": agent_name, "params": current_agent.get_config()})
+
+
+@app.route("/api/hyperparams", methods=["POST"])
+def set_hyperparams():
+    if current_agent is None:
+        return jsonify({"error": "Aucun agent sélectionné"}), 400
+    if training_status["running"]:
+        return jsonify({"error": "Entraînement en cours, attends la fin"}), 400
+
+    data    = request.get_json(force=True) or {}
+    config  = current_agent.get_config()
+
+    for key, val in data.items():
+        if key not in config:
+            continue
+        if isinstance(config[key], bool):
+            setattr(current_agent, key, bool(val))
+        else:
+            try:
+                setattr(current_agent, key, float(val))
+            except (ValueError, TypeError):
+                pass
+
+    return jsonify({"params": current_agent.get_config()})
 
 
 # ------------------------------------------------------------------
