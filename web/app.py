@@ -35,6 +35,8 @@ def _get_or_create_agent(name: str):
         return _agent_registry[name]
 
     from agents.tabular import SarsaAgent, QLearningAgent, ExpectedSarsaAgent, MonteCarloAgent
+    from agents.deep_rl import DQNAgent, PPOAgent
+    from agents.policy_gradient import REINFORCEAgent
     ACTION_SIZE = 4096
     OBS_SHAPE   = (8, 8, 17)
     agents_map = {
@@ -42,6 +44,9 @@ def _get_or_create_agent(name: str):
         "q_learning":     QLearningAgent(ACTION_SIZE, OBS_SHAPE),
         "expected_sarsa": ExpectedSarsaAgent(ACTION_SIZE, OBS_SHAPE),
         "monte_carlo":    MonteCarloAgent(ACTION_SIZE, OBS_SHAPE),
+        "dqn":            DQNAgent(ACTION_SIZE, OBS_SHAPE),
+        "reinforce":      REINFORCEAgent(ACTION_SIZE, OBS_SHAPE),
+        "ppo":            PPOAgent(ACTION_SIZE, OBS_SHAPE),
     }
     if name in agents_map:
         _agent_registry[name] = agents_map[name]
@@ -206,6 +211,9 @@ def list_agents():
         {"id": "q_learning",     "label": "Q-Learning",      "tier": 1},
         {"id": "expected_sarsa", "label": "Expected SARSA",  "tier": 1},
         {"id": "monte_carlo",    "label": "Monte Carlo",     "tier": 1},
+        {"id": "dqn",            "label": "DQN",             "tier": 4},
+        {"id": "reinforce",      "label": "REINFORCE",       "tier": 3},
+        {"id": "ppo",            "label": "PPO",             "tier": 4},
     ]
     current = agent_name
     infos = {}

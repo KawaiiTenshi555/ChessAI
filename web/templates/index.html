@@ -811,6 +811,9 @@ const AGENT_DEFS = [
   { id: 'q_learning',     label: 'Q-Learning',     icon: '📊' },
   { id: 'expected_sarsa', label: 'Expected SARSA', icon: '📉' },
   { id: 'monte_carlo',    label: 'Monte Carlo',    icon: '🎰' },
+  { id: 'dqn',            label: 'DQN',            icon: '🧠' },
+  { id: 'reinforce',      label: 'REINFORCE',      icon: '📐' },
+  { id: 'ppo',            label: 'PPO',            icon: '🚀' },
 ];
 
 // ===================================================================
@@ -937,12 +940,21 @@ let _trainTotal   = 0;
 // Hyperparameters schema & UI
 // ===================================================================
 const PARAM_SCHEMA = {
-  alpha:         { label: 'Alpha (α)',   min: 0.001, max: 1.0,  step: 0.001,  desc: 'Taux d\'apprentissage' },
-  gamma:         { label: 'Gamma (γ)',   min: 0.0,   max: 1.0,  step: 0.001,  desc: 'Facteur de décompte' },
-  epsilon:       { label: 'Epsilon (ε)', min: 0.0,   max: 1.0,  step: 0.01,   desc: 'Taux d\'exploration initial' },
-  epsilon_min:   { label: 'ε minimum',  min: 0.0,   max: 0.5,  step: 0.001,  desc: 'Exploration minimale' },
-  epsilon_decay: { label: 'ε decay',    min: 0.9,   max: 1.0,  step: 0.0001, desc: 'Décroissance par épisode' },
-  first_visit:   { label: 'First Visit', type: 'bool',          desc: 'N\'utiliser que la 1ère visite (s,a)' },
+  alpha:              { label: 'Alpha (α)',      min: 0.001,    max: 1.0,    step: 0.001,    desc: 'Taux d\'apprentissage' },
+  gamma:              { label: 'Gamma (γ)',      min: 0.0,      max: 1.0,    step: 0.001,    desc: 'Facteur de décompte' },
+  epsilon:            { label: 'Epsilon (ε)',    min: 0.0,      max: 1.0,    step: 0.01,     desc: 'Taux d\'exploration initial' },
+  epsilon_min:        { label: 'ε minimum',      min: 0.0,      max: 0.5,    step: 0.001,    desc: 'Exploration minimale' },
+  epsilon_decay:      { label: 'ε decay',        min: 0.9,      max: 1.0,    step: 0.0001,   desc: 'Décroissance par épisode' },
+  first_visit:        { label: 'First Visit',    type: 'bool',               desc: 'N\'utiliser que la 1ère visite (s,a)' },
+  lr:                 { label: 'Learning rate',  min: 0.000001, max: 0.01,   step: 0.000001, desc: 'Taux d\'apprentissage Adam' },
+  batch_size:         { label: 'Batch size',     type: 'int',   min: 8,      max: 512,   step: 8,   desc: 'Taille du mini-batch' },
+  target_update_freq: { label: 'Target sync',    type: 'int',   min: 50,     max: 5000,  step: 50,  desc: 'Synchronisation réseau cible (steps)' },
+  gae_lambda:         { label: 'GAE λ',          min: 0.8,      max: 1.0,    step: 0.01,     desc: 'Paramètre GAE (PPO)' },
+  clip_eps:           { label: 'Clip ε',         min: 0.05,     max: 0.5,    step: 0.01,     desc: 'Clipping PPO' },
+  entropy_coef:       { label: 'Entropie',       min: 0.0,      max: 0.1,    step: 0.001,    desc: 'Coefficient d\'entropie' },
+  ppo_epochs:         { label: 'PPO epochs',     type: 'int',   min: 1,      max: 20,    step: 1,   desc: 'Epochs de mise à jour PPO' },
+  rollout_steps:      { label: 'Rollout steps',  type: 'int',   min: 64,     max: 2048,  step: 64,  desc: 'Steps par rollout PPO' },
+  baseline:           { label: 'Baseline',       type: 'bool',               desc: 'Soustraction de la moyenne (REINFORCE)' },
 };
 
 // Stocke les valeurs en cours d'édition avant Apply
