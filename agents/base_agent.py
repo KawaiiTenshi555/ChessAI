@@ -13,6 +13,7 @@ And must be able to:
 """
 
 from abc import ABC, abstractmethod
+import os
 from typing import Any, Dict, List, Optional
 import numpy as np
 
@@ -92,6 +93,12 @@ class BaseAgent(ABC):
         Override to implement epsilon decay, buffer flushes, etc.
         """
 
+    def finalize_training(self) -> None:
+        """
+        Hook called once after a training run completes.
+        Override for agents that need to flush pending rollout state.
+        """
+
     # ------------------------------------------------------------------
     # Training loop — can be overridden for off-policy / batched updates
     # ------------------------------------------------------------------
@@ -136,6 +143,8 @@ class BaseAgent(ABC):
                       f"| Avg reward (last 100): {avg_r:.3f} "
                       f"| Length: {ep_length}")
 
+        self.finalize_training()
+
         return {
             "episode_rewards": self.episode_rewards,
             "episode_lengths": self.episode_lengths,
@@ -150,6 +159,9 @@ class BaseAgent(ABC):
     def save(self, path: str) -> None:
         """Save agent state to disk."""
         import pickle
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         state = {
             "config": self.get_config(),
             "episode_rewards": self.episode_rewards,

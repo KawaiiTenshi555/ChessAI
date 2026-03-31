@@ -222,7 +222,7 @@ class PPOAgent(BaseAgent):
         obs_arr     = torch.tensor(np.array(self._rb_obs),      dtype=torch.float32, device=self.device)  # [T, obs_dim]
         actions_arr = torch.tensor(self._rb_actions,            dtype=torch.long,    device=self.device)  # [T]
         old_log_probs = torch.stack(self._rb_log_probs)          # [T]
-        values_arr  = torch.cat(self._rb_values).squeeze(-1)    # [T]
+        values_arr  = torch.stack(self._rb_values).squeeze(-1)  # [T]
         rewards_arr = torch.tensor(self._rb_rewards,            dtype=torch.float32, device=self.device)  # [T]
         dones_arr   = torch.tensor(self._rb_dones,              dtype=torch.float32, device=self.device)  # [T]
         legal_masks = self._rb_legal_masks                       # list of T lists
@@ -242,7 +242,7 @@ class PPOAgent(BaseAgent):
 
         # Normalize advantages
         adv_mean = advantages.mean()
-        adv_std  = advantages.std() + 1e-8
+        adv_std  = advantages.std(unbiased=False) + 1e-8
         advantages = (advantages - adv_mean) / adv_std
 
         # ---- PPO epochs ----
@@ -316,6 +316,15 @@ class PPOAgent(BaseAgent):
         needed at episode boundaries.  Rollout buffers are NOT cleared here
         because a rollout can span multiple episodes.
         """
+
+    def finalize_training(self) -> None:
+        """
+        Flush a partial rollout at the end of training instead of dropping it.
+        Training runs in this repo end at episode boundaries, so bootstrapping
+        with a terminal value of 0 is consistent here.
+        """
+        if self._rb_rewards:
+            self._last_loss = self._ppo_update(bootstrap_value=0.0, terminal=True)
 
     def get_config(self) -> dict:
         return {

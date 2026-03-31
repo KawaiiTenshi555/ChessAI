@@ -147,38 +147,41 @@ class REINFORCEAgent(BaseAgent):
     def on_episode_end(self, episode: int, reward: float, length: int) -> None:
         """
         Compute discounted returns, form the REINFORCE loss, and update the policy.
-        Clears episode buffers afterwards.
+        Clears episode buffers afterwards (always, even on error).
         """
-        if not self._log_probs:
+        # Snapshot and immediately clear buffers to avoid accumulation across episodes
+        log_probs = list(self._log_probs)
+        rewards   = list(self._rewards)
+        self._log_probs = []
+        self._rewards   = []
+
+        # Align sizes: extra log_probs can occur if select_action was called
+        # for inference (web game) while training was running in parallel.
+        n = min(len(log_probs), len(rewards))
+        if n == 0:
             return
+        log_probs = log_probs[-n:]
+        rewards   = rewards[-n:]
 
         # Compute discounted returns G_t = Σ γ^k r_{t+k}
         returns = []
         G = 0.0
-        for r in reversed(self._rewards):
+        for r in reversed(rewards):
             G = r + self.gamma * G
             returns.insert(0, G)
 
-        returns_t = torch.tensor(returns, dtype=torch.float32, device=self.device)
+        returns_t   = torch.tensor(returns, dtype=torch.float32, device=self.device)
+        log_probs_t = torch.stack(log_probs)
 
-        # Variance-reduction baseline: subtract the mean return
         if self.baseline:
             returns_t = returns_t - returns_t.mean()
 
-        # Stack log-probs into a [T] tensor
-        log_probs_t = torch.stack(self._log_probs)   # [T]
-
-        # Policy-gradient loss: -E[log π(a|s) * G_t]
         loss = -(log_probs_t * returns_t).mean()
 
         self.optimizer.zero_grad()
         loss.backward()
         nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=1.0)
         self.optimizer.step()
-
-        # Clear episode buffers
-        self._log_probs = []
-        self._rewards   = []
 
     def get_config(self) -> dict:
         return {

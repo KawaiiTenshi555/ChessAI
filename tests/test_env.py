@@ -326,6 +326,12 @@ class TestGymnasiumInterface:
         if not terminated:
             assert reward <= 0  # penalty applied (or 0 if somehow legal)
 
+    def test_custom_terminal_outcome_rewards(self):
+        env = ChessEnv(terminal_win_reward=2.5, terminal_loss_penalty=1.75)
+        assert env._outcome_reward(WHITE) == 2.5
+        assert env._outcome_reward(BLACK) == -1.75
+        assert env._outcome_reward(0) == 0.0
+
     def test_observation_space_contains_obs(self):
         env = ChessEnv()
         obs, _ = env.reset()

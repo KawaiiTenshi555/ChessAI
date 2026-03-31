@@ -37,6 +37,10 @@ class ChessEnv(gym.Env):
         WHITE (1) or BLACK (-1). The agent controls this color.
     reward_shaping : bool
         If True, add a small material-balance bonus each step.
+    terminal_win_reward : float
+        Reward applied when the agent wins the game.
+    terminal_loss_penalty : float
+        Penalty applied when the agent loses the game.
     invalid_action_penalty : float
         Penalty applied when the agent submits an illegal action.
     """
@@ -47,12 +51,19 @@ class ChessEnv(gym.Env):
     # Promotion to queen is implicit when a pawn reaches the back rank.
     N_ACTIONS = 4096
 
+    # Valeurs centipions normalisées (Pawn=1, Knight=3, Bishop=3, Rook=5, Queen=9)
+    PIECE_VALUES = {1: 1.0, 2: 3.0, 3: 3.0, 4: 5.0, 5: 9.0, 6: 0.0}
+
     def __init__(
         self,
         render_mode: Optional[str] = None,
         opponent_policy: Optional[Callable] = None,
         player_color: int = WHITE,
         reward_shaping: bool = False,
+        capture_reward_scale: float = 0.0,
+        loss_penalty_scale: float = 0.0,
+        terminal_win_reward: float = 1.0,
+        terminal_loss_penalty: float = 1.0,
         invalid_action_penalty: float = -0.05,
     ):
         super().__init__()
@@ -60,6 +71,10 @@ class ChessEnv(gym.Env):
         self.opponent_policy: Callable = opponent_policy or self._random_policy
         self.player_color = player_color
         self.reward_shaping = reward_shaping
+        self.capture_reward_scale = capture_reward_scale
+        self.loss_penalty_scale = loss_penalty_scale
+        self.terminal_win_reward = terminal_win_reward
+        self.terminal_loss_penalty = terminal_loss_penalty
         self.invalid_action_penalty = invalid_action_penalty
 
         # Gymnasium interface
@@ -97,6 +112,8 @@ class ChessEnv(gym.Env):
         legal_map = self._legal_map()
 
         # --- Agent's move ---
+        mat_before = self._material_score() if self.reward_shaping else 0.0
+
         if action in legal_map:
             self.board._apply_move_unchecked(legal_map[action])
         else:
@@ -104,7 +121,10 @@ class ChessEnv(gym.Env):
             reward += self.invalid_action_penalty
             if legal_map:
                 self.board._apply_move_unchecked(random.choice(list(legal_map.values())))
-            # (if no legal moves exist the result check below handles it)
+
+        # Shaped reward for agent's move (capture or loss via promo capture)
+        if self.reward_shaping:
+            reward += self._capture_reward(self._material_score() - mat_before)
 
         # Check terminal after agent's move
         result = self.board.get_result()
@@ -116,7 +136,12 @@ class ChessEnv(gym.Env):
             return self._obs(), reward, True, False, self._info()
 
         # --- Opponent's move ---
+        mat_before_opp = self._material_score() if self.reward_shaping else 0.0
         self._play_opponent()
+
+        # Shaped reward for opponent's move (piece the agent lost)
+        if self.reward_shaping:
+            reward += self._capture_reward(self._material_score() - mat_before_opp)
 
         # Check terminal after opponent's move
         result = self.board.get_result()
@@ -124,10 +149,6 @@ class ChessEnv(gym.Env):
         if terminated:
             self._game_over = True
             reward += self._outcome_reward(result)
-
-        # Optional shaped reward (material balance)
-        if self.reward_shaping and not terminated:
-            reward += self._material_bonus()
 
         if self.render_mode in ("ascii", "human"):
             self.render()
@@ -200,21 +221,35 @@ class ChessEnv(gym.Env):
 
     def _outcome_reward(self, result) -> float:
         if result == self.player_color:
-            return 1.0
+            return self.terminal_win_reward
         if result == -self.player_color:
-            return -1.0
+            return -self.terminal_loss_penalty
         return 0.0   # Draw
 
-    def _material_bonus(self) -> float:
-        """Tiny reward proportional to the agent's material advantage."""
-        PIECE_VAL = {1: 1, 2: 3, 3: 3, 4: 5, 5: 9, 6: 0}
-        score = 0
+    def _material_score(self) -> float:
+        """Material balance from the agent's point of view (in pawns)."""
+        score = 0.0
         for sq in range(64):
             p = self.board.get_piece(sq)
             if p != 0:
-                v = PIECE_VAL[abs(p)]
+                v = self.PIECE_VALUES[abs(p)]
                 score += v if self.board.color_of(p) == self.player_color else -v
-        return score * 0.001
+        return score
+
+    def _capture_reward(self, delta: float) -> float:
+        """
+        Convert a material delta into a shaped reward.
+        delta > 0 : agent captured a piece  → capture_reward_scale * delta
+        delta < 0 : agent lost a piece      → -loss_penalty_scale * delta  (negative reward)
+        """
+        if not self.reward_shaping:
+            return 0.0
+        r = 0.0
+        if delta > 0:
+            r += self.capture_reward_scale * delta
+        elif delta < 0:
+            r -= self.loss_penalty_scale * (-delta)
+        return r
 
     def _obs(self) -> np.ndarray:
         obs = self.board.get_observation()

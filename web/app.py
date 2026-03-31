@@ -6,7 +6,9 @@ Supporte plusieurs agents IA (Random + agents tabulaires entraînés).
 import random
 import sys
 import os
+import pickle
 import threading
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -14,6 +16,16 @@ from flask import Flask, render_template, jsonify, request
 from chess_env.board import ChessBoard, Move, WHITE, BLACK, QUEEN
 
 app = Flask(__name__)
+
+ACTION_SIZE = 4096
+OBS_SHAPE = (8, 8, 17)
+REPO_ROOT = Path(__file__).resolve().parent.parent
+MODELS_DIR = REPO_ROOT / "models"
+STRUCTURAL_CONFIG_KEYS = {
+    "dqn": {"buffer_size", "hidden_sizes"},
+    "reinforce": {"hidden_sizes"},
+    "ppo": {"hidden_sizes"},
+}
 
 # ------------------------------------------------------------------
 # État global
@@ -23,40 +35,176 @@ board          = ChessBoard()
 player_color   = WHITE
 current_agent  = None   # None = random | instance de BaseAgent
 agent_name     = "random"
-training_status = {"running": False, "progress": 0, "total": 0, "episodes_done": 0}
+training_status = {
+    "running": False,
+    "progress": 0,
+    "total": 0,
+    "episodes_done": 0,
+    "agent": None,
+    "error": None,
+    "checkpoint_saved": False,
+    "checkpoint_path": None,
+}
 
 # Registre des agents disponibles (instanciés à la demande)
 _agent_registry: dict = {}
+_training_state_lock = threading.Lock()
+
+
+def _agent_classes():
+    from agents.tabular import SarsaAgent, QLearningAgent, ExpectedSarsaAgent, MonteCarloAgent
+    from agents.deep_rl import DQNAgent, PPOAgent
+    from agents.policy_gradient import REINFORCEAgent
+
+    return {
+        "sarsa": SarsaAgent,
+        "q_learning": QLearningAgent,
+        "expected_sarsa": ExpectedSarsaAgent,
+        "monte_carlo": MonteCarloAgent,
+        "dqn": DQNAgent,
+        "reinforce": REINFORCEAgent,
+        "ppo": PPOAgent,
+    }
+
+
+def _agent_default_config(name: str) -> dict:
+    agent_cls = _agent_classes().get(name)
+    defaults = getattr(agent_cls, "DEFAULT_CONFIG", {}) if agent_cls else {}
+    normalized = {}
+    for key, value in defaults.items():
+        normalized[key] = list(value) if isinstance(value, list) else value
+    return normalized
+
+
+def _agent_state_path(name: str) -> Path:
+    return MODELS_DIR / f"{name}.pkl"
+
+
+def _peek_saved_config(name: str):
+    path = _agent_state_path(name)
+    if not path.exists():
+        return None
+
+    try:
+        with path.open("rb") as f:
+            state = pickle.load(f)
+    except Exception:
+        return None
+
+    config = state.get("config")
+    return dict(config) if isinstance(config, dict) else None
+
+
+def _create_agent(name: str, config: dict | None = None):
+    agent_cls = _agent_classes().get(name)
+    if agent_cls is None:
+        return None
+    return agent_cls(ACTION_SIZE, OBS_SHAPE, config=config)
+
+
+def _save_agent_checkpoint(name: str, agent) -> Path:
+    path = _agent_state_path(name)
+    agent.save(str(path))
+    return path
 
 
 def _get_or_create_agent(name: str):
     """Retourne un agent existant ou en crée un nouveau."""
     if name in _agent_registry:
+        _normalize_agent_config(name, _agent_registry[name])
         return _agent_registry[name]
 
-    from agents.tabular import SarsaAgent, QLearningAgent, ExpectedSarsaAgent, MonteCarloAgent
-    from agents.deep_rl import DQNAgent, PPOAgent
-    from agents.policy_gradient import REINFORCEAgent
-    ACTION_SIZE = 4096
-    OBS_SHAPE   = (8, 8, 17)
-    agents_map = {
-        "sarsa":          SarsaAgent(ACTION_SIZE, OBS_SHAPE),
-        "q_learning":     QLearningAgent(ACTION_SIZE, OBS_SHAPE),
-        "expected_sarsa": ExpectedSarsaAgent(ACTION_SIZE, OBS_SHAPE),
-        "monte_carlo":    MonteCarloAgent(ACTION_SIZE, OBS_SHAPE),
-        "dqn":            DQNAgent(ACTION_SIZE, OBS_SHAPE),
-        "reinforce":      REINFORCEAgent(ACTION_SIZE, OBS_SHAPE),
-        "ppo":            PPOAgent(ACTION_SIZE, OBS_SHAPE),
-    }
-    if name in agents_map:
-        _agent_registry[name] = agents_map[name]
-        return _agent_registry[name]
-    return None
+    agent = _create_agent(name, config=_peek_saved_config(name))
+    if agent is None:
+        return None
+
+    checkpoint_path = _agent_state_path(name)
+    if checkpoint_path.exists():
+        try:
+            agent.load(str(checkpoint_path))
+        except Exception:
+            agent = _create_agent(name)
+
+    _normalize_agent_config(name, agent)
+    _agent_registry[name] = agent
+    return agent
 
 
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
+
+def _checkpoint_info(name: str) -> dict:
+    path = _agent_state_path(name)
+    return {
+        "exists": path.exists(),
+        "path": str(path),
+    }
+
+
+def _mean_reward(agent) -> float:
+    rewards = getattr(agent, "episode_rewards", [])
+    if not rewards:
+        return 0.0
+    return float(sum(rewards) / len(rewards))
+
+
+def _coerce_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+        raise ValueError(f"Valeur booléenne invalide: {value}")
+    return bool(value)
+
+
+def _coerce_config_value(template, value):
+    if isinstance(template, bool):
+        return _coerce_bool(value)
+    if isinstance(template, int) and not isinstance(template, bool):
+        return int(value)
+    if isinstance(template, float):
+        return float(value)
+    if isinstance(template, list):
+        if isinstance(value, str):
+            value = [part.strip() for part in value.split(",") if part.strip()]
+        if not isinstance(value, list):
+            raise ValueError("Une liste est attendue")
+        return [int(v) for v in value]
+    return value
+
+
+def _apply_hyperparam_updates(agent, updates: dict) -> None:
+    for key, value in updates.items():
+        setattr(agent, key, value)
+        agent.config[key] = value
+
+    if "lr" in updates and hasattr(agent, "optimizer"):
+        for group in agent.optimizer.param_groups:
+            group["lr"] = float(updates["lr"])
+
+
+def _normalize_agent_config(name: str, agent) -> None:
+    defaults = _agent_default_config(name)
+    if not defaults:
+        return
+
+    normalized = {}
+    for key, template in defaults.items():
+        if not hasattr(agent, key):
+            continue
+
+        try:
+            normalized[key] = _coerce_config_value(template, getattr(agent, key))
+        except (ValueError, TypeError):
+            normalized[key] = list(template) if isinstance(template, list) else template
+
+    _apply_hyperparam_updates(agent, normalized)
+
 
 def _board_state() -> dict:
     pieces = {}
@@ -76,11 +224,15 @@ def _board_state() -> dict:
 
     agent_info = None
     if current_agent is not None:
+        checkpoint = _checkpoint_info(agent_name)
         agent_info = {
             "name":          agent_name,
             "epsilon":       round(getattr(current_agent, "epsilon", 1.0), 3),
             "q_table_size":  getattr(current_agent, "q_table_size", 0),
             "training_steps": current_agent.training_steps,
+            "mean_reward":   _mean_reward(current_agent),
+            "checkpoint_exists": checkpoint["exists"],
+            "checkpoint_path": checkpoint["path"],
         }
 
     return {
@@ -129,8 +281,21 @@ def _ai_move():
     if current_agent is not None:
         obs = board.get_observation()
         legal_actions = [m.from_sq * 64 + m.to_sq for m in legal]
+
+        # Sauvegarder tous les buffers liste privés de l'agent (policy-gradient,
+        # PPO rollout, etc.) pour ne pas polluer l'entraînement pendant une partie.
+        _buf_backup = {
+            attr: list(val)
+            for attr, val in vars(current_agent).items()
+            if isinstance(val, list) and attr.startswith("_")
+        }
+
         action = current_agent.select_action(obs, legal_actions)
-        # Retrouver le Move correspondant
+
+        # Restaurer les buffers (on annule l'effet de select_action)
+        for attr, val in _buf_backup.items():
+            setattr(current_agent, attr, val)
+
         legal_map = {m.from_sq * 64 + m.to_sq: m for m in legal}
         move = legal_map.get(action, random.choice(legal))
         board._apply_move_unchecked(move)
@@ -221,10 +386,14 @@ def list_agents():
         aid = a["id"]
         if aid in _agent_registry:
             ag = _agent_registry[aid]
+            checkpoint = _checkpoint_info(aid)
             infos[aid] = {
                 "epsilon":        round(getattr(ag, "epsilon", 1.0), 3),
                 "training_steps": ag.training_steps,
                 "q_table_size":   getattr(ag, "q_table_size", 0),
+                "mean_reward":    _mean_reward(ag),
+                "checkpoint_exists": checkpoint["exists"],
+                "checkpoint_path": checkpoint["path"],
             }
     return jsonify({"agents": agents, "current": current, "infos": infos})
 
@@ -232,20 +401,29 @@ def list_agents():
 @app.route("/api/select_agent", methods=["POST"])
 def select_agent():
     global current_agent, agent_name
+    if training_status["running"]:
+        return jsonify({"error": "Impossible de changer d'agent pendant l'entraînement"}), 400
+
     data = request.get_json(force=True) or {}
     name = data.get("agent", "random")
 
     if name == "random":
         current_agent = None
         agent_name = "random"
+        checkpoint = None
     else:
         agent = _get_or_create_agent(name)
         if agent is None:
             return jsonify({"error": f"Agent inconnu : {name}"}), 400
         current_agent = agent
         agent_name = name
+        checkpoint = _checkpoint_info(name)
 
-    return jsonify({"selected": agent_name})
+    return jsonify({
+        "selected": agent_name,
+        "checkpoint_exists": checkpoint["exists"] if checkpoint else False,
+        "checkpoint_path": checkpoint["path"] if checkpoint else None,
+    })
 
 
 @app.route("/api/train", methods=["POST"])
@@ -255,62 +433,100 @@ def train_agent():
 
     if current_agent is None:
         return jsonify({"error": "Sélectionne d'abord un agent (pas random)"}), 400
-    if training_status["running"]:
-        return jsonify({"error": "Entraînement déjà en cours"}), 400
 
     data = request.get_json(force=True) or {}
-    n_episodes = int(data.get("episodes", 100))
+    n_episodes           = int(data.get("episodes", 100))
+    reward_shaping       = bool(data.get("reward_shaping", False))
+    capture_reward_scale = float(data.get("capture_reward_scale", 0.1))
+    loss_penalty_scale   = float(data.get("loss_penalty_scale", 0.1))
+    terminal_win_reward  = float(data.get("terminal_win_reward", 1.0))
+    terminal_loss_penalty = float(data.get("terminal_loss_penalty", 1.0))
 
     viz_delay = max(0.0, float(data.get("viz_delay", 0))) / 1000.0  # ms → s
+    selected_agent_name = agent_name
+    agent = current_agent
+    _normalize_agent_config(selected_agent_name, agent)
+
+    with _training_state_lock:
+        if training_status["running"]:
+            return jsonify({"error": "Entraînement déjà en cours"}), 400
+
+        training_status["running"] = True
+        training_status["total"] = n_episodes
+        training_status["progress"] = 0
+        training_status["episodes_done"] = 0
+        training_status["board"] = {}
+        training_status["train_last_move"] = None
+        training_status["agent"] = selected_agent_name
+        training_status["error"] = None
+        training_status["checkpoint_saved"] = False
+        training_status["checkpoint_path"] = None
 
     def _train():
         import time
         from chess_env.chess_env import ChessEnv
-        training_status["running"]         = True
-        training_status["total"]           = n_episodes
-        training_status["progress"]        = 0
-        training_status["episodes_done"]   = 0
-        training_status["board"]           = {}
-        training_status["train_last_move"] = None
 
-        env   = ChessEnv(render_mode=None)
-        agent = current_agent
+        try:
+            env = ChessEnv(
+                render_mode=None,
+                reward_shaping=reward_shaping,
+                capture_reward_scale=capture_reward_scale,
+                loss_penalty_scale=loss_penalty_scale,
+                terminal_win_reward=terminal_win_reward,
+                terminal_loss_penalty=terminal_loss_penalty,
+            )
 
-        for ep in range(n_episodes):
-            obs, info = env.reset()
-            done = False
-            while not done:
-                legal = info.get("legal_actions", [])
-                if not legal:
-                    break
-                action = agent.select_action(obs, legal)
-                next_obs, reward, terminated, truncated, next_info = env.step(action)
-                done = terminated or truncated
-                next_legal = next_info.get("legal_actions", []) if not done else []
-                agent.update(obs, action, reward, next_obs, done, next_legal)
-                obs, info = next_obs, next_info
-                agent.training_steps += 1
+            for ep in range(n_episodes):
+                obs, info = env.reset()
+                done = False
+                ep_reward = 0.0
+                ep_length = 0
 
-                # Snapshot pour la visualisation live
-                bd = env.board
-                training_status["board"] = {
-                    str(sq): int(bd.get_piece(sq))
-                    for sq in range(64) if bd.get_piece(sq) != 0
-                }
-                training_status["train_last_move"] = (
-                    bd.move_history[-1].to_uci() if bd.move_history else None
-                )
+                while not done:
+                    legal = info.get("legal_actions", [])
+                    if not legal:
+                        break
 
-                if viz_delay > 0:
-                    time.sleep(viz_delay)
+                    action = agent.select_action(obs, legal)
+                    next_obs, reward, terminated, truncated, next_info = env.step(action)
+                    done = terminated or truncated
+                    next_legal = next_info.get("legal_actions", []) if not done else []
+                    agent.update(obs, action, reward, next_obs, done, next_legal)
+                    obs, info = next_obs, next_info
+                    ep_reward += reward
+                    ep_length += 1
+                    agent.training_steps += 1
 
-            agent.on_episode_end(ep, 0.0, 0)
-            training_status["progress"]      = int((ep + 1) / n_episodes * 100)
-            training_status["episodes_done"] = ep + 1
+                    # Snapshot pour la visualisation live
+                    bd = env.board
+                    training_status["board"] = {
+                        str(sq): int(bd.get_piece(sq))
+                        for sq in range(64) if bd.get_piece(sq) != 0
+                    }
+                    training_status["train_last_move"] = (
+                        bd.move_history[-1].to_uci() if bd.move_history else None
+                    )
 
-        training_status["running"]         = False
-        training_status["board"]           = {}
-        training_status["train_last_move"] = None
+                    if viz_delay > 0:
+                        time.sleep(viz_delay)
+
+                agent.episode_rewards.append(ep_reward)
+                agent.episode_lengths.append(ep_length)
+                agent.on_episode_end(ep, ep_reward, ep_length)
+                training_status["progress"] = int((ep + 1) / n_episodes * 100)
+                training_status["episodes_done"] = ep + 1
+
+            agent.finalize_training()
+            checkpoint_path = _save_agent_checkpoint(selected_agent_name, agent)
+            training_status["checkpoint_saved"] = True
+            training_status["checkpoint_path"] = str(checkpoint_path)
+        except Exception as exc:
+            training_status["error"] = str(exc)
+        finally:
+            with _training_state_lock:
+                training_status["running"] = False
+                training_status["board"] = {}
+                training_status["train_last_move"] = None
 
     threading.Thread(target=_train, daemon=True).start()
     return jsonify({"started": True, "episodes": n_episodes, "agent": agent_name})
@@ -320,9 +536,13 @@ def train_agent():
 def get_training_status():
     info = dict(training_status)
     if current_agent is not None:
+        checkpoint = _checkpoint_info(agent_name)
         info["epsilon"]        = round(getattr(current_agent, "epsilon", 1.0), 3)
         info["training_steps"] = current_agent.training_steps
         info["q_table_size"]   = getattr(current_agent, "q_table_size", 0)
+        info["mean_reward"]    = _mean_reward(current_agent)
+        info["checkpoint_exists"] = checkpoint["exists"]
+        info["checkpoint_path"] = checkpoint["path"]
     return jsonify(info)
 
 
@@ -330,7 +550,11 @@ def get_training_status():
 def get_hyperparams():
     if current_agent is None:
         return jsonify({"error": "Aucun agent sélectionné"}), 400
-    return jsonify({"agent": agent_name, "params": current_agent.get_config()})
+    return jsonify({
+        "agent": agent_name,
+        "params": current_agent.get_config(),
+        "checkpoint": _checkpoint_info(agent_name),
+    })
 
 
 @app.route("/api/hyperparams", methods=["POST"])
@@ -340,21 +564,43 @@ def set_hyperparams():
     if training_status["running"]:
         return jsonify({"error": "Entraînement en cours, attends la fin"}), 400
 
-    data    = request.get_json(force=True) or {}
-    config  = current_agent.get_config()
+    data = request.get_json(force=True) or {}
+    config = current_agent.get_config()
+    schema = _agent_default_config(agent_name)
 
+    unsupported = sorted(
+        key for key in data
+        if key in STRUCTURAL_CONFIG_KEYS.get(agent_name, set()) and data.get(key) != config.get(key)
+    )
+    if unsupported:
+        keys = ", ".join(unsupported)
+        return jsonify({
+            "error": f"Les paramètres {keys} nécessitent de recréer l'agent; modification refusée."
+        }), 400
+
+    updates = {}
+    errors = {}
     for key, val in data.items():
         if key not in config:
             continue
-        if isinstance(config[key], bool):
-            setattr(current_agent, key, bool(val))
-        else:
-            try:
-                setattr(current_agent, key, float(val))
-            except (ValueError, TypeError):
-                pass
+        try:
+            template = schema.get(key, config[key])
+            updates[key] = _coerce_config_value(template, val)
+        except (ValueError, TypeError) as exc:
+            errors[key] = str(exc)
 
-    return jsonify({"params": current_agent.get_config()})
+    if errors:
+        return jsonify({"error": "Paramètres invalides", "details": errors}), 400
+
+    _apply_hyperparam_updates(current_agent, updates)
+    _normalize_agent_config(agent_name, current_agent)
+    checkpoint_path = _save_agent_checkpoint(agent_name, current_agent)
+
+    return jsonify({
+        "params": current_agent.get_config(),
+        "checkpoint_saved": True,
+        "checkpoint_path": str(checkpoint_path),
+    })
 
 
 # ------------------------------------------------------------------
