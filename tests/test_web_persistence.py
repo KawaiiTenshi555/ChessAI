@@ -7,6 +7,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import web.app as web_app
+from agents.deep_rl import AlphaZeroAgent
 from agents.policy_gradient import PPOAgent
 
 
@@ -68,6 +69,28 @@ def test_dqn_checkpoint_recreates_agent_with_saved_config():
     assert loaded.q_net.net[0].out_features == 64
 
 
+def test_alphazero_checkpoint_recreates_agent_with_saved_config():
+    agent = web_app._create_agent(
+        "alphazero",
+        config={
+            "hidden_sizes": [32],
+            "mcts_simulations": 4,
+            "batch_size": 4,
+            "replay_buffer_size": 32,
+            "training_batches_per_episode": 1,
+            "max_game_length": 4,
+        },
+    )
+    web_app._save_agent_checkpoint("alphazero", agent)
+
+    web_app._agent_registry.clear()
+    loaded = web_app._get_or_create_agent("alphazero")
+
+    assert loaded.hidden_sizes == [32]
+    assert loaded.mcts_simulations == 4
+    assert loaded.batch_size == 4
+
+
 def test_set_hyperparams_persists_runtime_safe_updates():
     web_app.current_agent = web_app._create_agent("dqn")
     web_app.agent_name = "dqn"
@@ -91,6 +114,39 @@ def test_set_hyperparams_persists_runtime_safe_updates():
     assert abs(loaded.lr - 2e-4) < 1e-12
 
 
+def test_alphazero_hyperparams_persist_runtime_safe_updates():
+    web_app.current_agent = web_app._create_agent(
+        "alphazero",
+        config={
+            "hidden_sizes": [32],
+            "mcts_simulations": 4,
+            "batch_size": 4,
+            "replay_buffer_size": 32,
+            "training_batches_per_episode": 1,
+            "max_game_length": 4,
+        },
+    )
+    web_app.agent_name = "alphazero"
+    client = web_app.app.test_client()
+
+    response = client.post("/api/hyperparams", json={
+        "mcts_simulations": 8,
+        "c_puct": 2.1,
+        "weight_decay": 5e-4,
+    })
+
+    assert response.status_code == 200
+    assert web_app.current_agent.mcts_simulations == 8
+    assert web_app.current_agent.c_puct == pytest.approx(2.1)
+    assert web_app.current_agent.weight_decay == pytest.approx(5e-4)
+
+    web_app._agent_registry.clear()
+    loaded = web_app._get_or_create_agent("alphazero")
+    assert loaded.mcts_simulations == 8
+    assert loaded.c_puct == pytest.approx(2.1)
+    assert loaded.weight_decay == pytest.approx(5e-4)
+
+
 def test_board_state_exposes_mean_reward_for_selected_agent():
     web_app.current_agent = web_app._create_agent("q_learning")
     web_app.agent_name = "q_learning"
@@ -112,6 +168,18 @@ def test_set_hyperparams_rejects_structural_dqn_updates():
     assert response.status_code == 400
     data = response.get_json()
     assert "recréer l'agent" in data["error"]
+
+
+def test_select_agent_exposes_alphazero_capabilities():
+    client = web_app.app.test_client()
+
+    response = client.post("/api/select_agent", json={"agent": "alphazero"})
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["selected"] == "alphazero"
+    assert data["capabilities"]["self_play"] is True
+    assert data["capabilities"]["reward_shaping"] is False
 
 
 def test_set_hyperparams_uses_canonical_schema_for_polluted_ppo_agent():
@@ -206,6 +274,52 @@ def test_web_train_route_updates_episode_rewards(monkeypatch):
     assert len(web_app.current_agent.episode_lengths) == 1
     status = client.get("/api/training_status").get_json()
     assert status["mean_reward"] == pytest.approx(web_app.current_agent.episode_rewards[0])
+
+    monkeypatch.setattr(web_app.threading, "Thread", original_thread)
+
+
+def test_web_train_route_runs_alphazero_self_play(monkeypatch):
+    web_app.current_agent = AlphaZeroAgent(
+        ACTION_SIZE,
+        OBS_SHAPE,
+        config={
+            "hidden_sizes": [32],
+            "batch_size": 4,
+            "mcts_simulations": 2,
+            "replay_buffer_size": 32,
+            "training_batches_per_episode": 1,
+            "max_game_length": 4,
+            "temperature_drop_move": 2,
+        },
+    )
+    web_app.agent_name = "alphazero"
+    client = web_app.app.test_client()
+
+    original_thread = web_app.threading.Thread
+
+    class ImmediateThread:
+        def __init__(self, target=None, daemon=None):
+            self._target = target
+            self.daemon = daemon
+
+        def start(self):
+            if self._target is not None:
+                self._target()
+
+    monkeypatch.setattr(web_app.threading, "Thread", ImmediateThread)
+
+    response = client.post("/api/train", json={
+        "episodes": 1,
+        "reward_shaping": True,
+        "capture_reward_scale": 0.25,
+    })
+
+    assert response.status_code == 200
+    assert len(web_app.current_agent.episode_rewards) == 1
+    assert web_app.current_agent.q_table_size > 0
+    status = client.get("/api/training_status").get_json()
+    assert status["checkpoint_saved"] is True
+    assert status["episodes_done"] == 1
 
     monkeypatch.setattr(web_app.threading, "Thread", original_thread)
 

@@ -12,6 +12,8 @@ import numpy as np
 import pytest
 
 from chess_env.chess_env import ChessEnv
+from chess_env.board import ChessBoard
+from agents.deep_rl import AlphaZeroAgent
 from agents.tabular import SarsaAgent, QLearningAgent, ExpectedSarsaAgent, MonteCarloAgent
 
 # Forme de l'observation et taille du l'espace d'action
@@ -249,6 +251,65 @@ class TestPersistence:
 
         assert agent2.training_steps == agent.training_steps
         assert abs(agent2.epsilon - agent.epsilon) < 1e-9
+
+
+# ===========================================================================
+# 5 — AlphaZero
+# ===========================================================================
+
+class TestAlphaZero:
+
+    def make_agent(self):
+        return AlphaZeroAgent(
+            ACTION_SIZE,
+            OBS_SHAPE,
+            config={
+                "hidden_sizes": [32],
+                "batch_size": 4,
+                "mcts_simulations": 2,
+                "replay_buffer_size": 32,
+                "training_batches_per_episode": 1,
+                "max_game_length": 4,
+                "temperature_drop_move": 2,
+            },
+        )
+
+    def test_select_action_returns_legal_action(self):
+        agent = self.make_agent()
+        env = make_env()
+        obs, info = env.reset(seed=7)
+        action = agent.select_action(obs, info["legal_actions"])
+        assert action in info["legal_actions"]
+
+    def test_select_move_returns_legal_move(self):
+        agent = self.make_agent()
+        board = ChessBoard()
+        move = agent.select_move(board, temperature=0.0)
+        assert move in board.get_legal_moves()
+
+    def test_train_self_play_populates_replay_buffer(self):
+        agent = self.make_agent()
+        stats = agent.train_self_play(n_episodes=1)
+
+        assert len(stats["episode_rewards"]) == 1
+        assert len(stats["episode_lengths"]) == 1
+        assert agent.training_steps > 0
+        assert agent.q_table_size > 0
+
+    def test_save_load_roundtrip(self, tmp_path):
+        agent = self.make_agent()
+        agent.train_self_play(n_episodes=1)
+
+        path = str(tmp_path / "alphazero.pkl")
+        agent.save(path)
+
+        loaded = self.make_agent()
+        loaded.load(path)
+
+        assert loaded.training_steps == agent.training_steps
+        assert loaded.hidden_sizes == agent.hidden_sizes
+        assert loaded.mcts_simulations == agent.mcts_simulations
+        assert loaded.q_table_size == agent.q_table_size
 
 
 if __name__ == "__main__":

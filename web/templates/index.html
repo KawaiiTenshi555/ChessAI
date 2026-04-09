@@ -731,7 +731,7 @@
         </div>
       </div>
       <!-- Reward shaping -->
-      <div style="border-top:1px solid #2a3a5e;margin:10px 0 8px;padding-top:8px">
+      <div id="reward-shaping-section" style="border-top:1px solid #2a3a5e;margin:10px 0 8px;padding-top:8px">
         <div class="param-bool-row" style="margin-bottom:6px">
           <span class="param-label">Reward shaping</span>
           <label class="param-toggle">
@@ -806,6 +806,9 @@
             La victoire et la défaite peuvent aussi être repondérées ici
           </div>
         </div>
+      </div>
+      <div id="self-play-note" class="param-desc" style="display:none;margin-top:4px">
+        Cet agent s'entraîne en self-play interne. Le reward shaping n'est pas utilisé.
       </div>
       <button class="btn btn-secondary" id="btn-train" onclick="startTraining()" style="margin-top:4px">Entraîner</button>
       <div class="progress-bar-wrap">
@@ -893,6 +896,7 @@ const AGENT_DEFS = [
   { id: 'expected_sarsa', label: 'Expected SARSA', icon: '📉' },
   { id: 'monte_carlo',    label: 'Monte Carlo',    icon: '🎰' },
   { id: 'dqn',            label: 'DQN',            icon: '🧠' },
+  { id: 'alphazero',      label: 'AlphaZero',      icon: 'AZ' },
   { id: 'reinforce',      label: 'REINFORCE',      icon: '📐' },
   { id: 'ppo',            label: 'PPO',            icon: '🚀' },
 ];
@@ -908,6 +912,7 @@ let chosenColor  = 'white';
 let moveLog      = [];
 let currentAgent = 'random';
 let trainingPoll = null;
+let currentAgentCapabilities = { reward_shaping: false, tree_search: false, self_play: false };
 
 // ===================================================================
 // Initialisation
@@ -1036,6 +1041,17 @@ const PARAM_SCHEMA = {
   ppo_epochs:         { label: 'PPO epochs',     type: 'int',   min: 1,      max: 20,    step: 1,   desc: 'Epochs de mise à jour PPO' },
   rollout_steps:      { label: 'Rollout steps',  type: 'int',   min: 64,     max: 2048,  step: 64,  desc: 'Steps par rollout PPO' },
   baseline:           { label: 'Baseline',       type: 'bool',               desc: 'Soustraction de la moyenne (REINFORCE)' },
+  weight_decay:       { label: 'Weight decay',   min: 0.0,      max: 0.01,   step: 0.0001,   desc: 'Régularisation des poids du réseau' },
+  mcts_simulations:   { label: 'MCTS sims',      type: 'int',   min: 4,      max: 256,   step: 4,   desc: 'Simulations de recherche par coup' },
+  c_puct:             { label: 'C-PUCT',         min: 0.1,      max: 4.0,    step: 0.1,      desc: 'Équilibre exploration / exploitation dans le MCTS' },
+  temperature:        { label: 'Température',    min: 0.0,      max: 2.0,    step: 0.05,     desc: 'Diversité des coups générés en self-play' },
+  temperature_drop_move: { label: 'Drop temp',   type: 'int',   min: 1,      max: 60,    step: 1,   desc: 'Nombre de demi-coups avant de jouer quasi-déterministe' },
+  dirichlet_alpha:    { label: 'Dirichlet α',    min: 0.01,     max: 1.0,    step: 0.01,     desc: 'Bruit Dirichlet ajouté à la racine du MCTS' },
+  dirichlet_epsilon:  { label: 'Dirichlet ε',    min: 0.0,      max: 0.75,   step: 0.01,     desc: 'Poids du bruit Dirichlet à la racine' },
+  training_batches_per_episode: { label: 'Batches/episode', type: 'int', min: 1, max: 64, step: 1, desc: 'Nombre de mises à jour réseau après chaque partie' },
+  policy_loss_coef:   { label: 'Policy loss',    min: 0.1,      max: 5.0,    step: 0.1,      desc: 'Poids de la perte de politique' },
+  value_loss_coef:    { label: 'Value loss',     min: 0.1,      max: 5.0,    step: 0.1,      desc: 'Poids de la perte de valeur' },
+  max_game_length:    { label: 'Longueur max',   type: 'int',   min: 16,     max: 512,   step: 16,  desc: 'Coupe une partie trop longue et la traite comme nulle' },
 };
 
 // Stocke les valeurs en cours d'édition avant Apply
@@ -1044,7 +1060,17 @@ let _pendingParams = {};
 async function loadHyperparams() {
   const data = await apiFetch('/api/hyperparams');
   if (!data) return;
+  if (data.capabilities) applyAgentCapabilities(data.capabilities);
   buildHyperparamUI(data.params);
+}
+
+function applyAgentCapabilities(capabilities) {
+  currentAgentCapabilities = capabilities || { reward_shaping: false, tree_search: false, self_play: false };
+
+  const rewardSection = document.getElementById('reward-shaping-section');
+  const selfPlayNote = document.getElementById('self-play-note');
+  if (rewardSection) rewardSection.style.display = currentAgentCapabilities.reward_shaping ? '' : 'none';
+  if (selfPlayNote) selfPlayNote.style.display = currentAgentCapabilities.self_play ? '' : 'none';
 }
 
 function buildHyperparamUI(params) {
@@ -1150,6 +1176,7 @@ async function selectAgent(id) {
   if (infoCard)  infoCard.style.display  = isRandom ? 'none' : '';
   if (trainCard) trainCard.style.display = isRandom ? 'none' : '';
   if (paramCard) paramCard.style.display = isRandom ? 'none' : '';
+  applyAgentCapabilities(isRandom ? null : data.capabilities);
 
   if (!isRandom) {
     updateAgentStats(null);
@@ -1264,8 +1291,11 @@ async function startTraining() {
   const winReward      = parseFloat(winEl ? winEl.value : 1.0) || 1.0;
   const defeatPenalty  = parseFloat(defeatEl ? defeatEl.value : 1.0) || 1.0;
 
-  const body = { episodes: n, viz_delay: delay, reward_shaping: rewardShaping };
-  if (rewardShaping) {
+  const body = { episodes: n, viz_delay: delay };
+  if (currentAgentCapabilities.reward_shaping) {
+    body.reward_shaping = rewardShaping;
+  }
+  if (currentAgentCapabilities.reward_shaping && rewardShaping) {
     body.capture_reward_scale = captureScale;
     body.loss_penalty_scale   = lossScale;
     body.terminal_win_reward  = winReward;

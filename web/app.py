@@ -25,6 +25,7 @@ STRUCTURAL_CONFIG_KEYS = {
     "dqn": {"buffer_size", "hidden_sizes"},
     "reinforce": {"hidden_sizes"},
     "ppo": {"hidden_sizes"},
+    "alphazero": {"hidden_sizes", "replay_buffer_size"},
 }
 
 # ------------------------------------------------------------------
@@ -53,7 +54,7 @@ _training_state_lock = threading.Lock()
 
 def _agent_classes():
     from agents.tabular import SarsaAgent, QLearningAgent, ExpectedSarsaAgent, MonteCarloAgent
-    from agents.deep_rl import DQNAgent, PPOAgent
+    from agents.deep_rl import AlphaZeroAgent, DQNAgent, PPOAgent
     from agents.policy_gradient import REINFORCEAgent
 
     return {
@@ -62,6 +63,7 @@ def _agent_classes():
         "expected_sarsa": ExpectedSarsaAgent,
         "monte_carlo": MonteCarloAgent,
         "dqn": DQNAgent,
+        "alphazero": AlphaZeroAgent,
         "reinforce": REINFORCEAgent,
         "ppo": PPOAgent,
     }
@@ -78,6 +80,14 @@ def _agent_default_config(name: str) -> dict:
 
 def _agent_state_path(name: str) -> Path:
     return MODELS_DIR / f"{name}.pkl"
+
+
+def _agent_capabilities(name: str) -> dict:
+    return {
+        "reward_shaping": name not in {"alphazero"},
+        "tree_search": name in {"alphazero"},
+        "self_play": name in {"alphazero"},
+    }
 
 
 def _peek_saved_config(name: str):
@@ -186,6 +196,9 @@ def _apply_hyperparam_updates(agent, updates: dict) -> None:
     if "lr" in updates and hasattr(agent, "optimizer"):
         for group in agent.optimizer.param_groups:
             group["lr"] = float(updates["lr"])
+    if "weight_decay" in updates and hasattr(agent, "optimizer"):
+        for group in agent.optimizer.param_groups:
+            group["weight_decay"] = float(updates["weight_decay"])
 
 
 def _normalize_agent_config(name: str, agent) -> None:
@@ -273,12 +286,16 @@ def _uci_to_move(uci: str):
 
 def _ai_move():
     """Fait jouer l'IA (agent entraîné ou random)."""
-    import numpy as np
     legal = board.get_legal_moves()
     if not legal:
         return
 
     if current_agent is not None:
+        if hasattr(current_agent, "select_move"):
+            move = current_agent.select_move(board, temperature=0.0)
+            board._apply_move_unchecked(move if move in legal else random.choice(legal))
+            return
+
         obs = board.get_observation()
         legal_actions = [m.from_sq * 64 + m.to_sq for m in legal]
 
@@ -371,14 +388,15 @@ def reset():
 @app.route("/api/agents")
 def list_agents():
     agents = [
-        {"id": "random",         "label": "Aléatoire",      "tier": 0},
-        {"id": "sarsa",          "label": "SARSA",           "tier": 1},
-        {"id": "q_learning",     "label": "Q-Learning",      "tier": 1},
-        {"id": "expected_sarsa", "label": "Expected SARSA",  "tier": 1},
-        {"id": "monte_carlo",    "label": "Monte Carlo",     "tier": 1},
-        {"id": "dqn",            "label": "DQN",             "tier": 4},
-        {"id": "reinforce",      "label": "REINFORCE",       "tier": 3},
-        {"id": "ppo",            "label": "PPO",             "tier": 4},
+        {"id": "random",         "label": "Aléatoire",      "tier": 0, **_agent_capabilities("random")},
+        {"id": "sarsa",          "label": "SARSA",           "tier": 1, **_agent_capabilities("sarsa")},
+        {"id": "q_learning",     "label": "Q-Learning",      "tier": 1, **_agent_capabilities("q_learning")},
+        {"id": "expected_sarsa", "label": "Expected SARSA",  "tier": 1, **_agent_capabilities("expected_sarsa")},
+        {"id": "monte_carlo",    "label": "Monte Carlo",     "tier": 1, **_agent_capabilities("monte_carlo")},
+        {"id": "dqn",            "label": "DQN",             "tier": 4, **_agent_capabilities("dqn")},
+        {"id": "alphazero",      "label": "AlphaZero",       "tier": 5, **_agent_capabilities("alphazero")},
+        {"id": "reinforce",      "label": "REINFORCE",       "tier": 3, **_agent_capabilities("reinforce")},
+        {"id": "ppo",            "label": "PPO",             "tier": 4, **_agent_capabilities("ppo")},
     ]
     current = agent_name
     infos = {}
@@ -423,6 +441,7 @@ def select_agent():
         "selected": agent_name,
         "checkpoint_exists": checkpoint["exists"] if checkpoint else False,
         "checkpoint_path": checkpoint["path"] if checkpoint else None,
+        "capabilities": _agent_capabilities(agent_name),
     })
 
 
@@ -436,15 +455,15 @@ def train_agent():
 
     data = request.get_json(force=True) or {}
     n_episodes           = int(data.get("episodes", 100))
-    reward_shaping       = bool(data.get("reward_shaping", False))
-    capture_reward_scale = float(data.get("capture_reward_scale", 0.1))
-    loss_penalty_scale   = float(data.get("loss_penalty_scale", 0.1))
-    terminal_win_reward  = float(data.get("terminal_win_reward", 1.0))
-    terminal_loss_penalty = float(data.get("terminal_loss_penalty", 1.0))
-
     viz_delay = max(0.0, float(data.get("viz_delay", 0))) / 1000.0  # ms → s
     selected_agent_name = agent_name
     agent = current_agent
+    capabilities = _agent_capabilities(selected_agent_name)
+    reward_shaping = bool(data.get("reward_shaping", False)) if capabilities["reward_shaping"] else False
+    capture_reward_scale = float(data.get("capture_reward_scale", 0.1)) if capabilities["reward_shaping"] else 0.0
+    loss_penalty_scale = float(data.get("loss_penalty_scale", 0.1)) if capabilities["reward_shaping"] else 0.0
+    terminal_win_reward = float(data.get("terminal_win_reward", 1.0)) if capabilities["reward_shaping"] else 1.0
+    terminal_loss_penalty = float(data.get("terminal_loss_penalty", 1.0)) if capabilities["reward_shaping"] else 1.0
     _normalize_agent_config(selected_agent_name, agent)
 
     with _training_state_lock:
@@ -467,56 +486,78 @@ def train_agent():
         from chess_env.chess_env import ChessEnv
 
         try:
-            env = ChessEnv(
-                render_mode=None,
-                reward_shaping=reward_shaping,
-                capture_reward_scale=capture_reward_scale,
-                loss_penalty_scale=loss_penalty_scale,
-                terminal_win_reward=terminal_win_reward,
-                terminal_loss_penalty=terminal_loss_penalty,
-            )
-
-            for ep in range(n_episodes):
-                obs, info = env.reset()
-                done = False
-                ep_reward = 0.0
-                ep_length = 0
-
-                while not done:
-                    legal = info.get("legal_actions", [])
-                    if not legal:
-                        break
-
-                    action = agent.select_action(obs, legal)
-                    next_obs, reward, terminated, truncated, next_info = env.step(action)
-                    done = terminated or truncated
-                    next_legal = next_info.get("legal_actions", []) if not done else []
-                    agent.update(obs, action, reward, next_obs, done, next_legal)
-                    obs, info = next_obs, next_info
-                    ep_reward += reward
-                    ep_length += 1
-                    agent.training_steps += 1
-
-                    # Snapshot pour la visualisation live
-                    bd = env.board
-                    training_status["board"] = {
-                        str(sq): int(bd.get_piece(sq))
-                        for sq in range(64) if bd.get_piece(sq) != 0
-                    }
-                    training_status["train_last_move"] = (
-                        bd.move_history[-1].to_uci() if bd.move_history else None
-                    )
-
+            if hasattr(agent, "train_self_play"):
+                def _progress(payload: dict) -> None:
+                    bd = payload.get("board")
+                    if bd is not None:
+                        training_status["board"] = {
+                            str(sq): int(bd.get_piece(sq))
+                            for sq in range(64) if bd.get_piece(sq) != 0
+                        }
+                    training_status["train_last_move"] = payload.get("last_move")
+                    current_episode = int(payload.get("current_episode", payload.get("episodes_done", 0)))
+                    training_status["progress"] = int(current_episode / max(n_episodes, 1) * 100)
+                    training_status["episodes_done"] = current_episode
                     if viz_delay > 0:
                         time.sleep(viz_delay)
 
-                agent.episode_rewards.append(ep_reward)
-                agent.episode_lengths.append(ep_length)
-                agent.on_episode_end(ep, ep_reward, ep_length)
-                training_status["progress"] = int((ep + 1) / n_episodes * 100)
-                training_status["episodes_done"] = ep + 1
+                agent.train_self_play(
+                    n_episodes=n_episodes,
+                    progress_callback=_progress,
+                )
+                training_status["progress"] = 100
+                training_status["episodes_done"] = n_episodes
+            else:
+                env = ChessEnv(
+                    render_mode=None,
+                    reward_shaping=reward_shaping,
+                    capture_reward_scale=capture_reward_scale,
+                    loss_penalty_scale=loss_penalty_scale,
+                    terminal_win_reward=terminal_win_reward,
+                    terminal_loss_penalty=terminal_loss_penalty,
+                )
 
-            agent.finalize_training()
+                for ep in range(n_episodes):
+                    obs, info = env.reset()
+                    done = False
+                    ep_reward = 0.0
+                    ep_length = 0
+
+                    while not done:
+                        legal = info.get("legal_actions", [])
+                        if not legal:
+                            break
+
+                        action = agent.select_action(obs, legal)
+                        next_obs, reward, terminated, truncated, next_info = env.step(action)
+                        done = terminated or truncated
+                        next_legal = next_info.get("legal_actions", []) if not done else []
+                        agent.update(obs, action, reward, next_obs, done, next_legal)
+                        obs, info = next_obs, next_info
+                        ep_reward += reward
+                        ep_length += 1
+                        agent.training_steps += 1
+
+                        # Snapshot pour la visualisation live
+                        bd = env.board
+                        training_status["board"] = {
+                            str(sq): int(bd.get_piece(sq))
+                            for sq in range(64) if bd.get_piece(sq) != 0
+                        }
+                        training_status["train_last_move"] = (
+                            bd.move_history[-1].to_uci() if bd.move_history else None
+                        )
+
+                        if viz_delay > 0:
+                            time.sleep(viz_delay)
+
+                    agent.episode_rewards.append(ep_reward)
+                    agent.episode_lengths.append(ep_length)
+                    agent.on_episode_end(ep, ep_reward, ep_length)
+                    training_status["progress"] = int((ep + 1) / n_episodes * 100)
+                    training_status["episodes_done"] = ep + 1
+
+                agent.finalize_training()
             checkpoint_path = _save_agent_checkpoint(selected_agent_name, agent)
             training_status["checkpoint_saved"] = True
             training_status["checkpoint_path"] = str(checkpoint_path)
@@ -554,6 +595,7 @@ def get_hyperparams():
         "agent": agent_name,
         "params": current_agent.get_config(),
         "checkpoint": _checkpoint_info(agent_name),
+        "capabilities": _agent_capabilities(agent_name),
     })
 
 
