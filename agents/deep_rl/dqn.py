@@ -15,7 +15,6 @@ Training:
 
 import io
 import random
-from collections import deque
 from typing import List, Optional
 
 import numpy as np
@@ -74,8 +73,8 @@ class DQNAgent(BaseAgent):
         "epsilon":           1.0,
         "epsilon_min":       0.05,
         "epsilon_decay":     0.9995,
-        "buffer_size":       10000,
-        "batch_size":        64,
+        "buffer_size":       50000,
+        "batch_size":        256,
         "target_update_freq": 500,
         "hidden_sizes":      [512, 256],
     }
@@ -108,8 +107,9 @@ class DQNAgent(BaseAgent):
 
         self.optimizer = optim.Adam(self.q_net.parameters(), lr=self.lr)
 
-        # Replay buffer: stores (obs, action, reward, next_obs, done)
-        self._buffer: deque = deque(maxlen=self.buffer_size)
+        # Replay buffer : liste circulaire pour O(1) en accès aléatoire
+        self._buffer: list = []
+        self._buf_pos: int = 0   # position d'écriture circulaire
 
         # Internal step counter (separate from training_steps which is managed by train())
         self._update_steps: int = 0
@@ -161,15 +161,19 @@ class DQNAgent(BaseAgent):
 
         Returns the training loss (MSE) or 0.0 if the buffer is not large enough yet.
         """
-        # Store flattened arrays to save memory
-        self._buffer.append((
+        entry = (
             obs.flatten().astype(np.float32),
             int(action),
             float(reward),
             next_obs.flatten().astype(np.float32),
             bool(done),
             list(legal_next_actions) if legal_next_actions else [],
-        ))
+        )
+        if len(self._buffer) < self.buffer_size:
+            self._buffer.append(entry)
+        else:
+            self._buffer[self._buf_pos] = entry
+        self._buf_pos = (self._buf_pos + 1) % self.buffer_size
 
         if len(self._buffer) < self.batch_size:
             return 0.0
@@ -202,9 +206,10 @@ class DQNAgent(BaseAgent):
         batch = random.sample(self._buffer, self.batch_size)
         obs_b, act_b, rew_b, next_obs_b, done_b, next_legal_b = zip(*batch)
 
-        obs_t      = torch.tensor(np.array(obs_b),      dtype=torch.float32, device=self.device)
-        next_obs_t = torch.tensor(np.array(next_obs_b), dtype=torch.float32, device=self.device)
-        act_t      = torch.tensor(act_b,  dtype=torch.long,  device=self.device)
+        # torch.from_numpy évite une copie mémoire vs torch.tensor(np.array(...))
+        obs_t      = torch.from_numpy(np.stack(obs_b)).to(self.device, non_blocking=True)
+        next_obs_t = torch.from_numpy(np.stack(next_obs_b)).to(self.device, non_blocking=True)
+        act_t      = torch.tensor(act_b,  dtype=torch.long,    device=self.device)
         rew_t      = torch.tensor(rew_b,  dtype=torch.float32, device=self.device)
         done_t     = torch.tensor(done_b, dtype=torch.float32, device=self.device)
 
@@ -250,11 +255,12 @@ class DQNAgent(BaseAgent):
     def _get_extra_state(self) -> dict:
         buf = io.BytesIO()
         torch.save({
-            "q_net":        self.q_net.state_dict(),
-            "target_net":   self.target_net.state_dict(),
-            "optimizer":    self.optimizer.state_dict(),
-            "epsilon":      self.epsilon,
+            "q_net":         self.q_net.state_dict(),
+            "target_net":    self.target_net.state_dict(),
+            "optimizer":     self.optimizer.state_dict(),
+            "epsilon":       self.epsilon,
             "_update_steps": self._update_steps,
+            "_buf_pos":      self._buf_pos,
         }, buf)
         return {"torch_state": buf.getvalue()}
 
@@ -268,6 +274,7 @@ class DQNAgent(BaseAgent):
         self.optimizer.load_state_dict(checkpoint["optimizer"])
         self.epsilon       = checkpoint.get("epsilon", self.epsilon)
         self._update_steps = checkpoint.get("_update_steps", 0)
+        self._buf_pos      = checkpoint.get("_buf_pos", 0)
 
     # ------------------------------------------------------------------
     # Web UI compatibility

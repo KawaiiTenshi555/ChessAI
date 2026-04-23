@@ -54,6 +54,44 @@ def _make_session_id(agent_name: str) -> str:
     ts = datetime.now().strftime("%H%M%S_%f")[:9]   # HHMMSSms
     return f"{agent_name}_{ts}"
 
+
+def _device_label(device) -> str:
+    """Retourne un libellé lisible pour un torch.device."""
+    import torch
+    d = str(device)
+    if d == "cpu":
+        return "CPU"
+    if d.startswith("cuda"):
+        idx = int(d.split(":")[-1]) if ":" in d else 0
+        try:
+            name = torch.cuda.get_device_name(idx)
+        except Exception:
+            name = "GPU"
+        return f"GPU {idx} — {name}"
+    return d
+
+
+def _global_device_info() -> dict:
+    """Résumé global du dispositif de calcul disponible."""
+    import torch
+    if not torch.cuda.is_available():
+        return {"device": "cpu", "label": "CPU", "gpu_count": 0, "gpus": []}
+    gpus = []
+    for i in range(torch.cuda.device_count()):
+        props = torch.cuda.get_device_properties(i)
+        gpus.append({
+            "index":  i,
+            "name":   props.name,
+            "memory": round(props.total_memory / 1024 ** 3, 1),
+        })
+    return {
+        "device":    f"cuda:{torch.cuda.current_device()}",
+        "label":     _device_label(f"cuda:{torch.cuda.current_device()}"),
+        "gpu_count": torch.cuda.device_count(),
+        "gpus":      gpus,
+        "cuda_version": torch.version.cuda,
+    }
+
 def _empty_session(agent_name: str, session_id: str = "") -> dict:
     return {
         "session_id":       session_id or agent_name,
@@ -575,6 +613,8 @@ def train_agent():
     terminal_loss_penalty = float(data.get("terminal_loss_penalty", 10.0)) if capabilities["reward_shaping"] else 10.0
 
     session_id = _make_session_id(target_name)
+    device_str   = str(getattr(session_agent, "device", "cpu"))
+    device_lbl   = _device_label(device_str)
     session: dict = {
         "session_id":       session_id,
         "running":          True,
@@ -582,6 +622,8 @@ def train_agent():
         "total":            n_episodes,
         "episodes_done":    0,
         "agent":            target_name,
+        "device":           device_str,
+        "device_label":     device_lbl,
         "error":            None,
         "checkpoint_saved": False,
         "checkpoint_path":  None,
@@ -773,6 +815,12 @@ def set_hyperparams():
         "checkpoint_saved": True,
         "checkpoint_path": str(checkpoint_path),
     })
+
+
+@app.route("/api/device_info")
+def device_info():
+    """Informations sur le dispositif de calcul (CPU / GPU)."""
+    return jsonify(_global_device_info())
 
 
 # ------------------------------------------------------------------

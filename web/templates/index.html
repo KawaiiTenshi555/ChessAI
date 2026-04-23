@@ -332,6 +332,41 @@
     .session-badge.done    { background: #1e4a2a; color: #66bb6a; }
     .session-badge.error   { background: #7a2a2e; color: #ff5252; }
 
+    /* Badge device (CPU / GPU) */
+    .device-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      padding: 2px 7px;
+      border-radius: 4px;
+    }
+    .device-badge.gpu  { background: #1a3560; color: #60a5fa; border: 1px solid #2a4a80; }
+    .device-badge.cpu  { background: #2a2a2e; color: #aaa;    border: 1px solid #3a3a4e; }
+
+    /* Indicateur global device */
+    #global-device-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      background: #16213e;
+      border: 1px solid #2a3a5e;
+      border-radius: 7px;
+      margin-bottom: 4px;
+    }
+    #global-device-bar .dev-label {
+      font-size: 0.78rem;
+      color: #888;
+    }
+    #global-device-bar .dev-mem {
+      font-size: 0.70rem;
+      color: #555;
+      margin-left: auto;
+    }
+
     .session-bar-wrap {
       height: 4px;
       background: #2a3a5e;
@@ -788,6 +823,11 @@
     <!-- Training -->
     <div class="card" id="train-card" style="display:none">
       <h3>Entraînement</h3>
+      <div id="global-device-bar">
+        <span class="dev-label">Calcul :</span>
+        <span id="global-device-badge" class="device-badge cpu">CPU</span>
+        <span class="dev-mem" id="global-device-mem"></span>
+      </div>
       <div class="train-row" style="margin-bottom:6px">
         <label for="train-agent-select" style="white-space:nowrap;font-size:0.78rem;color:#888">Agent :</label>
         <select id="train-agent-select" style="flex:1;padding:5px 8px;background:#1a1a2e;border:1px solid #2a3a5e;border-radius:5px;color:#e0e0e0;font-size:0.83rem">
@@ -1003,6 +1043,7 @@ function init() {
   buildFileLabels();
   buildAgentGrid();
   fetchState();
+  loadDeviceInfo();
   // Poll des sessions toutes les 2 s
   sessionsPoll = setInterval(pollAllSessions, 2000);
 }
@@ -1298,6 +1339,41 @@ function updateAgentStats(agentInfo) {
 }
 
 // ===================================================================
+// Device info (CPU / GPU)
+// ===================================================================
+async function loadDeviceInfo() {
+  const data = await apiFetch('/api/device_info');
+  if (!data) return;
+  renderGlobalDevice(data);
+}
+
+function renderGlobalDevice(info) {
+  const badge = document.getElementById('global-device-badge');
+  const mem   = document.getElementById('global-device-mem');
+  if (!badge) return;
+
+  const isGpu = info.device && info.device.startsWith('cuda');
+  badge.className = 'device-badge ' + (isGpu ? 'gpu' : 'cpu');
+
+  if (isGpu && info.gpus && info.gpus.length > 0) {
+    const idx = parseInt(info.device.split(':')[1] || '0');
+    const gpu = info.gpus[idx] || info.gpus[0];
+    badge.textContent = `GPU ${idx}`;
+    if (mem) mem.textContent = `${gpu.name} · ${gpu.memory} Go · CUDA ${info.cuda_version || ''}`;
+  } else {
+    badge.textContent = 'CPU';
+    if (mem) mem.textContent = 'Pas de GPU détecté';
+  }
+}
+
+function deviceBadgeHTML(deviceLabel) {
+  if (!deviceLabel) return '';
+  const isGpu = deviceLabel.toLowerCase().startsWith('gpu');
+  const cls   = isGpu ? 'gpu' : 'cpu';
+  return `<span class="device-badge ${cls}">${deviceLabel}</span>`;
+}
+
+// ===================================================================
 // Sessions d'entraînement (multi-training)
 // ===================================================================
 function buildTrainAgentSelect() {
@@ -1354,7 +1430,8 @@ function renderSessionsPanel(sessions) {
       ? `${timeMatch[1].slice(0,2)}:${timeMatch[1].slice(2,4)}:${timeMatch[1].slice(4,6)}`
       : '';
 
-    const pct = sess.progress || 0;
+    const pct       = sess.progress || 0;
+    const devBadge  = deviceBadgeHTML(sess.device_label || '');
 
     item.innerHTML = `
       <div class="session-header">
@@ -1362,7 +1439,10 @@ function renderSessionsPanel(sessions) {
           ${agentDef.icon} ${agentDef.label}
           ${timeLabel ? `<span style="font-size:0.65rem;color:#666;font-weight:400">${timeLabel}</span>` : ''}
         </span>
-        <span class="session-badge ${badgeClass}">${badgeText}</span>
+        <div style="display:flex;gap:4px;align-items:center">
+          ${devBadge}
+          <span class="session-badge ${badgeClass}">${badgeText}</span>
+        </div>
       </div>
       <div class="session-bar-wrap">
         <div class="session-bar-fill" style="width:${pct}%"></div>
