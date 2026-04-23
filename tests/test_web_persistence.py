@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import web.app as web_app
 from agents.deep_rl import AlphaZeroAgent
 from agents.policy_gradient import PPOAgent
+from chess_env.board import ChessBoard
 
 
 OBS_SHAPE = (8, 8, 17)
@@ -19,21 +20,12 @@ ACTION_SIZE = 4096
 def isolate_web_state(tmp_path, monkeypatch):
     monkeypatch.setattr(web_app, "MODELS_DIR", tmp_path)
     web_app._agent_registry.clear()
+    web_app._training_sessions.clear()
     web_app.current_agent = None
     web_app.agent_name = "random"
-    web_app.training_status.clear()
-    web_app.training_status.update({
-        "running": False,
-        "progress": 0,
-        "total": 0,
-        "episodes_done": 0,
-        "agent": None,
-        "error": None,
-        "checkpoint_saved": False,
-        "checkpoint_path": None,
-    })
     yield
     web_app._agent_registry.clear()
+    web_app._training_sessions.clear()
     web_app.current_agent = None
     web_app.agent_name = "random"
 
@@ -221,7 +213,8 @@ def test_normalize_agent_config_recovers_float_polluted_ppo_fields():
     assert isinstance(agent.rollout_steps, int)
 
 
-def test_train_route_rejects_second_launch_before_worker_runs(monkeypatch):
+def test_train_route_allows_multiple_sessions_same_agent(monkeypatch):
+    """Deux lancements consécutifs du même agent créent deux sessions distinctes."""
     web_app.current_agent = web_app._create_agent("ppo")
     web_app.agent_name = "ppo"
     client = web_app.app.test_client()
@@ -229,12 +222,12 @@ def test_train_route_rejects_second_launch_before_worker_runs(monkeypatch):
     original_thread = web_app.threading.Thread
 
     class DummyThread:
-        def __init__(self, target=None, daemon=None):
+        def __init__(self, target=None, daemon=None, name=None):
             self._target = target
             self.daemon = daemon
 
         def start(self):
-            return None
+            return None  # ne démarre pas vraiment
 
     monkeypatch.setattr(web_app.threading, "Thread", DummyThread)
 
@@ -242,9 +235,11 @@ def test_train_route_rejects_second_launch_before_worker_runs(monkeypatch):
     second = client.post("/api/train", json={"episodes": 1})
 
     assert first.status_code == 200
-    assert second.status_code == 400
-    assert second.get_json()["error"] == "Entraînement déjà en cours"
-    assert web_app.training_status["running"] is True
+    assert second.status_code == 200  # deux sessions autorisées
+
+    # Deux sessions distinctes dans le registre
+    ppo_sessions = [s for s in web_app._training_sessions.values() if s["agent"] == "ppo"]
+    assert len(ppo_sessions) == 2
 
     monkeypatch.setattr(web_app.threading, "Thread", original_thread)
 
@@ -257,7 +252,7 @@ def test_web_train_route_updates_episode_rewards(monkeypatch):
     original_thread = web_app.threading.Thread
 
     class ImmediateThread:
-        def __init__(self, target=None, daemon=None):
+        def __init__(self, target=None, daemon=None, name=None):
             self._target = target
             self.daemon = daemon
 
@@ -276,6 +271,24 @@ def test_web_train_route_updates_episode_rewards(monkeypatch):
     assert status["mean_reward"] == pytest.approx(web_app.current_agent.episode_rewards[0])
 
     monkeypatch.setattr(web_app.threading, "Thread", original_thread)
+
+
+def test_self_play_policy_preserves_ppo_buffers():
+    agent = PPOAgent(
+        ACTION_SIZE,
+        OBS_SHAPE,
+        config={"hidden_sizes": [32], "batch_size": 4, "rollout_steps": 32, "ppo_epochs": 1},
+    )
+    board = ChessBoard()
+    policy = web_app._self_play_policy(agent)
+
+    move = policy(None, board.get_legal_moves(), board)
+
+    assert move in board.get_legal_moves()
+    assert len(agent._rb_obs) == 0
+    assert len(agent._rb_actions) == 0
+    assert len(agent._rb_log_probs) == 0
+    assert len(agent._rb_rewards) == 0
 
 
 def test_web_train_route_runs_alphazero_self_play(monkeypatch):
@@ -298,7 +311,7 @@ def test_web_train_route_runs_alphazero_self_play(monkeypatch):
     original_thread = web_app.threading.Thread
 
     class ImmediateThread:
-        def __init__(self, target=None, daemon=None):
+        def __init__(self, target=None, daemon=None, name=None):
             self._target = target
             self.daemon = daemon
 

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/test_env.py -x -q)",
+      "Bash(python -m pytest tests/test_agents.py -x -q)",
+      "Bash(python -m pytest tests/test_env.py tests/test_web_persistence.py -x -q)"
+    ]
+  }
+}

@@ -4,35 +4,64 @@
 
 Cet agent combine :
 
-- un réseau politique-valeur qui prédit les coups prometteurs
-- une recherche MCTS guidée par ces prédictions
-- un entraînement par self-play
+- un reseau politique-valeur qui predit les coups prometteurs
+- une recherche MCTS guidee par ces predictions
+- un entrainement par self-play
 
-L'implémentation du projet reste volontairement légère pour tourner dans l'environnement actuel, sans pipeline distribué.
+L'implementation du projet reste volontairement legere pour tourner dans l'environnement actuel, sans pipeline distribue.
 
-## Hyperparamètres principaux
+## Hyperparametres principaux
 
 - `mcts_simulations` : nombre de simulations MCTS par coup
-- `c_puct` : équilibre exploration / exploitation dans l'arbre
-- `temperature` : diversité des coups joués en self-play
-- `temperature_drop_move` : nombre de demi-coups avant jeu quasi-déterministe
-- `dirichlet_alpha` : forme du bruit Dirichlet à la racine
+- `c_puct` : equilibre exploration / exploitation dans l'arbre
+- `temperature` : diversite des coups joues en self-play
+- `temperature_drop_move` : nombre de demi-coups avant jeu quasi-deterministe
+- `dirichlet_alpha` : forme du bruit Dirichlet a la racine
 - `dirichlet_epsilon` : poids du bruit Dirichlet
-- `lr` : learning rate du réseau
-- `weight_decay` : régularisation L2
-- `batch_size` : taille des mini-batchs d'entraînement
-- `training_batches_per_episode` : nombre de mises à jour après chaque partie
-- `max_game_length` : borne de sécurité pour arrêter une partie trop longue
+- `lr` : learning rate du reseau
+- `weight_decay` : regularisation L2
+- `batch_size` : taille des mini-batchs d'entrainement
+- `training_batches_per_episode` : nombre de mises a jour apres chaque partie
+- `max_game_length` : borne de securite pour arreter une partie trop longue
 
-## Intégration projet
+## Integration projet
 
-- Agent disponible côté backend sous `alphazero`
-- Coup en partie joué via `select_move(board)`
-- Entraînement web effectué en self-play
-- Les options de reward shaping sont masquées dans l'UI quand AlphaZero est sélectionné
+- Agent disponible cote backend sous `alphazero`
+- Coup en partie joue via `select_move(board)`
+- Entrainement web effectue en self-play
+- Les options de reward shaping sont masquees dans l'UI quand AlphaZero est selectionne
 
 ## Limites
 
-- Réseau MLP simple, sans résidus ni convolutions
+- Reseau MLP simple, sans residus ni convolutions
 - Self-play local mono-processus
-- Observation compacte adaptée à l'architecture actuelle du projet
+- Observation compacte adaptee a l'architecture actuelle du projet
+
+## Benchmark local contre Stockfish
+
+Un benchmark local UCI est disponible via `benchmark/stockfish.py`.
+
+Exemple :
+
+```bash
+python -m benchmark.stockfish --agent alphazero --games 20 --stockfish-elo 1200 --stockfish-path C:\path\to\stockfish.exe
+```
+
+Le benchmark :
+
+- lance Stockfish en local via un sous-processus UCI
+- alterne automatiquement les couleurs blanc / noir
+- calcule le score `W/L/D`
+- estime un Elo de l'agent a partir du score obtenu contre le niveau Elo demande a Stockfish
+
+Sortie attendue :
+
+- `W/L/D`
+- `Ratio W/L`
+- `Elo estime`
+
+Notes :
+
+- aucune connexion Internet n'est necessaire
+- si `--stockfish-path` n'est pas fourni, le script essaie de detecter `stockfish` localement
+- `--depth` peut etre utilise a la place de `--movetime-ms`

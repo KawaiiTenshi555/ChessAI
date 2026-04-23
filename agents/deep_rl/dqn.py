@@ -215,15 +215,16 @@ class DQNAgent(BaseAgent):
         # Target Q-values: r + γ * max_a' Q_target(s', a')  (0 if done)
         with torch.no_grad():
             next_q = self.target_net(next_obs_t)            # [B, n_actions]
-            # Apply legal masking per sample
+            # Build legal mask matrix in one shot [B, n_actions]
+            legal_mask = torch.full(
+                (self.batch_size, self.n_actions), float('-inf'), device=self.device
+            )
             for i, legal in enumerate(next_legal_b):
                 if legal:
-                    mask = torch.full((self.n_actions,), float('-inf'), device=self.device)
-                    mask[legal] = 0.0
-                    next_q[i] = next_q[i] + mask
+                    legal_mask[i, legal] = 0.0
                 else:
-                    next_q[i] = torch.zeros(self.n_actions, device=self.device)
-
+                    legal_mask[i] = 0.0  # terminal — all actions allowed (zeroed by done_t)
+            next_q = next_q + legal_mask
             max_next_q = next_q.max(dim=1).values           # [B]
             targets = rew_t + self.gamma * max_next_q * (1.0 - done_t)
 

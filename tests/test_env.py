@@ -332,6 +332,14 @@ class TestGymnasiumInterface:
         assert env._outcome_reward(BLACK) == -1.75
         assert env._outcome_reward(0) == 0.0
 
+    def test_default_reward_parameters(self):
+        env = ChessEnv()
+        assert env.capture_reward_scale == pytest.approx(0.01)
+        assert env.loss_penalty_scale == pytest.approx(0.01)
+        assert env.terminal_win_reward == pytest.approx(10.0)
+        assert env.terminal_loss_penalty == pytest.approx(10.0)
+        assert env.invalid_action_penalty == pytest.approx(-1.0)
+
     def test_observation_space_contains_obs(self):
         env = ChessEnv()
         obs, _ = env.reset()

@@ -8,6 +8,8 @@ import sys
 import os
 import pickle
 import threading
+import time
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -36,20 +38,52 @@ board          = ChessBoard()
 player_color   = WHITE
 current_agent  = None   # None = random | instance de BaseAgent
 agent_name     = "random"
-training_status = {
-    "running": False,
-    "progress": 0,
-    "total": 0,
-    "episodes_done": 0,
-    "agent": None,
-    "error": None,
-    "checkpoint_saved": False,
-    "checkpoint_path": None,
-}
 
 # Registre des agents disponibles (instanciés à la demande)
 _agent_registry: dict = {}
-_training_state_lock = threading.Lock()
+
+# ------------------------------------------------------------------
+# Multi-training : sessions identifiées par ID (plusieurs par agent)
+# ------------------------------------------------------------------
+
+_training_sessions: dict  = {}          # session_id -> status dict
+_sessions_lock            = threading.Lock()   # protège uniquement les écritures dans le dict
+
+def _make_session_id(agent_name: str) -> str:
+    """Génère un ID unique : agent_<HHMMSS_ms>."""
+    ts = datetime.now().strftime("%H%M%S_%f")[:9]   # HHMMSSms
+    return f"{agent_name}_{ts}"
+
+def _empty_session(agent_name: str, session_id: str = "") -> dict:
+    return {
+        "session_id":       session_id or agent_name,
+        "running":          False,
+        "progress":         0,
+        "total":            0,
+        "episodes_done":    0,
+        "agent":            agent_name,
+        "error":            None,
+        "checkpoint_saved": False,
+        "checkpoint_path":  None,
+        "board":            {},
+        "train_last_move":  None,
+        "start_time":       None,
+    }
+
+def _latest_session_for(agent_name: str) -> dict:
+    """Retourne la session la plus récente (running en priorité) pour cet agent."""
+    sessions = [s for s in _training_sessions.values() if s["agent"] == agent_name]
+    if not sessions:
+        return _empty_session(agent_name)
+    # Priorité aux sessions en cours, sinon la plus récente par start_time
+    running = [s for s in sessions if s["running"]]
+    if running:
+        return max(running, key=lambda s: s.get("start_time") or 0)
+    return max(sessions, key=lambda s: s.get("start_time") or 0)
+
+# Alias backward-compat utilisé dans _board_state et hyperparams
+def _session_status(agent_name: str) -> dict:
+    return _latest_session_for(agent_name)
 
 
 def _agent_classes():
@@ -86,7 +120,7 @@ def _agent_capabilities(name: str) -> dict:
     return {
         "reward_shaping": name not in {"alphazero"},
         "tree_search": name in {"alphazero"},
-        "self_play": name in {"alphazero"},
+        "self_play": name != "random",
     }
 
 
@@ -259,7 +293,7 @@ def _board_state() -> dict:
         "fullmove":      board.fullmove_number,
         "last_move":     board.move_history[-1].to_uci() if board.move_history else None,
         "agent":         agent_info,
-        "training":      dict(training_status),
+        "training":      _session_status(agent_name),
     }
 
 
@@ -284,6 +318,55 @@ def _uci_to_move(uci: str):
     return Move(ChessBoard.sq(from_row, from_col), ChessBoard.sq(to_row, to_col), promo)
 
 
+def _obs_for_color(board: ChessBoard, color: int):
+    obs = board.get_observation()
+    if color == BLACK:
+        obs = obs[::-1, ::-1, :].copy()
+    return obs
+
+
+def _select_agent_move_for_board(agent, board: ChessBoard, legal_moves=None, preserve_buffers: bool = False):
+    legal = legal_moves if legal_moves is not None else board.get_legal_moves()
+    if not legal:
+        return None
+
+    if hasattr(agent, "select_move"):
+        move = agent.select_move(board, temperature=0.0)
+        return move if move in legal else random.choice(legal)
+
+    legal_actions = [m.from_sq * 64 + m.to_sq for m in legal]
+    obs = _obs_for_color(board, board.turn)
+
+    backups = {}
+    if preserve_buffers:
+        backups = {
+            attr: list(val)
+            for attr, val in vars(agent).items()
+            if isinstance(val, list) and attr.startswith("_")
+        }
+
+    action = agent.select_action(obs, legal_actions)
+
+    if preserve_buffers:
+        for attr, val in backups.items():
+            setattr(agent, attr, val)
+
+    legal_map = {m.from_sq * 64 + m.to_sq: m for m in legal}
+    return legal_map.get(action, random.choice(legal))
+
+
+def _self_play_policy(agent):
+    def _policy(_obs, legal_moves, board):
+        return _select_agent_move_for_board(
+            agent,
+            board,
+            legal_moves=legal_moves,
+            preserve_buffers=True,
+        )
+
+    return _policy
+
+
 def _ai_move():
     """Fait jouer l'IA (agent entraîné ou random)."""
     legal = board.get_legal_moves()
@@ -291,31 +374,13 @@ def _ai_move():
         return
 
     if current_agent is not None:
-        if hasattr(current_agent, "select_move"):
-            move = current_agent.select_move(board, temperature=0.0)
-            board._apply_move_unchecked(move if move in legal else random.choice(legal))
-            return
-
-        obs = board.get_observation()
-        legal_actions = [m.from_sq * 64 + m.to_sq for m in legal]
-
-        # Sauvegarder tous les buffers liste privés de l'agent (policy-gradient,
-        # PPO rollout, etc.) pour ne pas polluer l'entraînement pendant une partie.
-        _buf_backup = {
-            attr: list(val)
-            for attr, val in vars(current_agent).items()
-            if isinstance(val, list) and attr.startswith("_")
-        }
-
-        action = current_agent.select_action(obs, legal_actions)
-
-        # Restaurer les buffers (on annule l'effet de select_action)
-        for attr, val in _buf_backup.items():
-            setattr(current_agent, attr, val)
-
-        legal_map = {m.from_sq * 64 + m.to_sq: m for m in legal}
-        move = legal_map.get(action, random.choice(legal))
-        board._apply_move_unchecked(move)
+        move = _select_agent_move_for_board(
+            current_agent,
+            board,
+            legal_moves=legal,
+            preserve_buffers=True,
+        )
+        board._apply_move_unchecked(move if move in legal else random.choice(legal))
     else:
         board._apply_move_unchecked(random.choice(legal))
 
@@ -419,8 +484,8 @@ def list_agents():
 @app.route("/api/select_agent", methods=["POST"])
 def select_agent():
     global current_agent, agent_name
-    if training_status["running"]:
-        return jsonify({"error": "Impossible de changer d'agent pendant l'entraînement"}), 400
+    # Les sessions d'entraînement tournent sur des instances isolées —
+    # on peut changer l'agent de jeu à tout moment.
 
     data = request.get_json(force=True) or {}
     name = data.get("agent", "random")
@@ -445,79 +510,121 @@ def select_agent():
     })
 
 
+def _build_session_agent(target_name: str, ref_agent=None):
+    """Crée une instance d'agent indépendante pour une session d'entraînement.
+
+    Priorité config : ref_agent (registre ou courant) > checkpoint > défauts.
+    Charge les poids du checkpoint si disponible, puis retourne une instance
+    isolée qui ne partage aucun état avec l'agent utilisé pour jouer.
+    """
+    # Config de référence (ordre de priorité)
+    if ref_agent is None:
+        ref_agent = _agent_registry.get(target_name)
+    config = ref_agent.get_config() if ref_agent is not None else (_peek_saved_config(target_name) or {})
+
+    session_agent = _create_agent(target_name, config=config)
+    if session_agent is None:
+        return None
+
+    # Charger les poids du checkpoint principal si disponible
+    checkpoint_path = _agent_state_path(target_name)
+    if checkpoint_path.exists():
+        try:
+            session_agent.load(str(checkpoint_path))
+        except Exception:
+            pass  # démarrer à zéro si le checkpoint est corrompu
+
+    _normalize_agent_config(target_name, session_agent)
+    return session_agent
+
+
 @app.route("/api/train", methods=["POST"])
 def train_agent():
-    """Lance l'entraînement de l'agent courant dans un thread séparé."""
-    global training_status
+    """Lance une nouvelle session d'entraînement dans un thread dédié.
 
-    if current_agent is None:
-        return jsonify({"error": "Sélectionne d'abord un agent (pas random)"}), 400
+    Chaque appel crée une session indépendante avec sa propre instance
+    d'agent — plusieurs sessions du même agent peuvent coexister.
 
+    Paramètres JSON :
+      agent    : nom de l'agent (défaut = agent courant)
+      episodes : nombre d'épisodes
+      viz_delay: délai visualisation en ms
+      reward_shaping + paramètres associés
+    """
     data = request.get_json(force=True) or {}
-    n_episodes           = int(data.get("episodes", 100))
-    viz_delay = max(0.0, float(data.get("viz_delay", 0))) / 1000.0  # ms → s
-    selected_agent_name = agent_name
-    agent = current_agent
-    capabilities = _agent_capabilities(selected_agent_name)
-    reward_shaping = bool(data.get("reward_shaping", False)) if capabilities["reward_shaping"] else False
-    capture_reward_scale = float(data.get("capture_reward_scale", 0.1)) if capabilities["reward_shaping"] else 0.0
-    loss_penalty_scale = float(data.get("loss_penalty_scale", 0.1)) if capabilities["reward_shaping"] else 0.0
-    terminal_win_reward = float(data.get("terminal_win_reward", 1.0)) if capabilities["reward_shaping"] else 1.0
-    terminal_loss_penalty = float(data.get("terminal_loss_penalty", 1.0)) if capabilities["reward_shaping"] else 1.0
-    _normalize_agent_config(selected_agent_name, agent)
+    target_name = data.get("agent", agent_name)
 
-    with _training_state_lock:
-        if training_status["running"]:
-            return jsonify({"error": "Entraînement déjà en cours"}), 400
+    if target_name == "random":
+        return jsonify({"error": "Impossible d'entraîner l'agent aléatoire"}), 400
 
-        training_status["running"] = True
-        training_status["total"] = n_episodes
-        training_status["progress"] = 0
-        training_status["episodes_done"] = 0
-        training_status["board"] = {}
-        training_status["train_last_move"] = None
-        training_status["agent"] = selected_agent_name
-        training_status["error"] = None
-        training_status["checkpoint_saved"] = False
-        training_status["checkpoint_path"] = None
+    # Référence à l'agent de jeu courant (pour copier la config et recharger après)
+    playing_ref = _agent_registry.get(target_name) or (current_agent if target_name == agent_name else None)
+
+    # Instance isolée pour cette session (config copiée de l'agent courant)
+    session_agent = _build_session_agent(target_name, ref_agent=playing_ref)
+    if session_agent is None:
+        return jsonify({"error": f"Agent inconnu : {target_name}"}), 400
+
+    n_episodes            = int(data.get("episodes", 100))
+    viz_delay             = max(0.0, float(data.get("viz_delay", 0))) / 1000.0
+    capabilities          = _agent_capabilities(target_name)
+    reward_shaping        = bool(data.get("reward_shaping", False)) if capabilities["reward_shaping"] else False
+    capture_reward_scale  = float(data.get("capture_reward_scale", 0.01)) if capabilities["reward_shaping"] else 0.0
+    loss_penalty_scale    = float(data.get("loss_penalty_scale", 0.01)) if capabilities["reward_shaping"] else 0.0
+    terminal_win_reward   = float(data.get("terminal_win_reward", 10.0)) if capabilities["reward_shaping"] else 10.0
+    terminal_loss_penalty = float(data.get("terminal_loss_penalty", 10.0)) if capabilities["reward_shaping"] else 10.0
+
+    session_id = _make_session_id(target_name)
+    session: dict = {
+        "session_id":       session_id,
+        "running":          True,
+        "progress":         0,
+        "total":            n_episodes,
+        "episodes_done":    0,
+        "agent":            target_name,
+        "error":            None,
+        "checkpoint_saved": False,
+        "checkpoint_path":  None,
+        "board":            {},
+        "train_last_move":  None,
+        "start_time":       time.time(),
+    }
+    with _sessions_lock:
+        _training_sessions[session_id] = session
 
     def _train():
-        import time
         from chess_env.chess_env import ChessEnv
-
         try:
-            if hasattr(agent, "train_self_play"):
+            if hasattr(session_agent, "train_self_play"):
                 def _progress(payload: dict) -> None:
                     bd = payload.get("board")
                     if bd is not None:
-                        training_status["board"] = {
+                        session["board"] = {
                             str(sq): int(bd.get_piece(sq))
                             for sq in range(64) if bd.get_piece(sq) != 0
                         }
-                    training_status["train_last_move"] = payload.get("last_move")
-                    current_episode = int(payload.get("current_episode", payload.get("episodes_done", 0)))
-                    training_status["progress"] = int(current_episode / max(n_episodes, 1) * 100)
-                    training_status["episodes_done"] = current_episode
+                    session["train_last_move"] = payload.get("last_move")
+                    current_ep = int(payload.get("current_episode", payload.get("episodes_done", 0)))
+                    session["progress"]      = int(current_ep / max(n_episodes, 1) * 100)
+                    session["episodes_done"] = current_ep
                     if viz_delay > 0:
                         time.sleep(viz_delay)
 
-                agent.train_self_play(
-                    n_episodes=n_episodes,
-                    progress_callback=_progress,
-                )
-                training_status["progress"] = 100
-                training_status["episodes_done"] = n_episodes
+                session_agent.train_self_play(n_episodes=n_episodes, progress_callback=_progress)
+                session["progress"]      = 100
+                session["episodes_done"] = n_episodes
             else:
-                env = ChessEnv(
-                    render_mode=None,
-                    reward_shaping=reward_shaping,
-                    capture_reward_scale=capture_reward_scale,
-                    loss_penalty_scale=loss_penalty_scale,
-                    terminal_win_reward=terminal_win_reward,
-                    terminal_loss_penalty=terminal_loss_penalty,
-                )
-
                 for ep in range(n_episodes):
+                    env = ChessEnv(
+                        render_mode=None,
+                        opponent_policy=_self_play_policy(session_agent),
+                        player_color=WHITE if ep % 2 == 0 else BLACK,
+                        reward_shaping=reward_shaping,
+                        capture_reward_scale=capture_reward_scale,
+                        loss_penalty_scale=loss_penalty_scale,
+                        terminal_win_reward=terminal_win_reward,
+                        terminal_loss_penalty=terminal_loss_penalty,
+                    )
                     obs, info = env.reset()
                     done = False
                     ep_reward = 0.0
@@ -527,64 +634,87 @@ def train_agent():
                         legal = info.get("legal_actions", [])
                         if not legal:
                             break
-
-                        action = agent.select_action(obs, legal)
+                        action = session_agent.select_action(obs, legal)
                         next_obs, reward, terminated, truncated, next_info = env.step(action)
                         done = terminated or truncated
                         next_legal = next_info.get("legal_actions", []) if not done else []
-                        agent.update(obs, action, reward, next_obs, done, next_legal)
+                        session_agent.update(obs, action, reward, next_obs, done, next_legal)
                         obs, info = next_obs, next_info
                         ep_reward += reward
                         ep_length += 1
-                        agent.training_steps += 1
+                        session_agent.training_steps += 1
 
-                        # Snapshot pour la visualisation live
                         bd = env.board
-                        training_status["board"] = {
+                        session["board"] = {
                             str(sq): int(bd.get_piece(sq))
                             for sq in range(64) if bd.get_piece(sq) != 0
                         }
-                        training_status["train_last_move"] = (
+                        session["train_last_move"] = (
                             bd.move_history[-1].to_uci() if bd.move_history else None
                         )
-
                         if viz_delay > 0:
                             time.sleep(viz_delay)
 
-                    agent.episode_rewards.append(ep_reward)
-                    agent.episode_lengths.append(ep_length)
-                    agent.on_episode_end(ep, ep_reward, ep_length)
-                    training_status["progress"] = int((ep + 1) / n_episodes * 100)
-                    training_status["episodes_done"] = ep + 1
+                    session_agent.episode_rewards.append(ep_reward)
+                    session_agent.episode_lengths.append(ep_length)
+                    session_agent.on_episode_end(ep, ep_reward, ep_length)
+                    session["progress"]      = int((ep + 1) / n_episodes * 100)
+                    session["episodes_done"] = ep + 1
 
-                agent.finalize_training()
-            checkpoint_path = _save_agent_checkpoint(selected_agent_name, agent)
-            training_status["checkpoint_saved"] = True
-            training_status["checkpoint_path"] = str(checkpoint_path)
+                session_agent.finalize_training()
+
+            # Sauvegarde : checkpoint principal (écrase) + checkpoint de session
+            main_path = _save_agent_checkpoint(target_name, session_agent)
+            session_path = MODELS_DIR / f"{session_id}.pkl"
+            session_agent.save(str(session_path))
+            session["checkpoint_saved"] = True
+            session["checkpoint_path"]  = str(main_path)
+            session["session_checkpoint"] = str(session_path)
+
+            # Recharger les poids dans l'instance de jeu (registre ou current_agent direct)
+            if playing_ref is not None:
+                try:
+                    playing_ref.load(str(main_path))
+                except Exception:
+                    pass
         except Exception as exc:
-            training_status["error"] = str(exc)
+            import traceback
+            session["error"] = str(exc)
+            session["traceback"] = traceback.format_exc()
         finally:
-            with _training_state_lock:
-                training_status["running"] = False
-                training_status["board"] = {}
-                training_status["train_last_move"] = None
+            session["running"]         = False
+            session["board"]           = {}
+            session["train_last_move"] = None
 
-    threading.Thread(target=_train, daemon=True).start()
-    return jsonify({"started": True, "episodes": n_episodes, "agent": agent_name})
+    threading.Thread(target=_train, daemon=True, name=f"train-{session_id}").start()
+    return jsonify({"started": True, "episodes": n_episodes, "agent": target_name, "session_id": session_id})
 
 
 @app.route("/api/training_status")
 def get_training_status():
-    info = dict(training_status)
+    """Statut de la session la plus récente pour l'agent courant (compat. UI)."""
+    info = dict(_latest_session_for(agent_name))
     if current_agent is not None:
         checkpoint = _checkpoint_info(agent_name)
-        info["epsilon"]        = round(getattr(current_agent, "epsilon", 1.0), 3)
-        info["training_steps"] = current_agent.training_steps
-        info["q_table_size"]   = getattr(current_agent, "q_table_size", 0)
-        info["mean_reward"]    = _mean_reward(current_agent)
+        info["epsilon"]           = round(getattr(current_agent, "epsilon", 1.0), 3)
+        info["training_steps"]    = current_agent.training_steps
+        info["q_table_size"]      = getattr(current_agent, "q_table_size", 0)
+        info["mean_reward"]       = _mean_reward(current_agent)
         info["checkpoint_exists"] = checkpoint["exists"]
-        info["checkpoint_path"] = checkpoint["path"]
+        info["checkpoint_path"]   = checkpoint["path"]
     return jsonify(info)
+
+
+@app.route("/api/training_sessions")
+def get_training_sessions():
+    """Toutes les sessions d'entraînement triées par date de démarrage."""
+    sessions = {}
+    with _sessions_lock:
+        snapshot = dict(_training_sessions)
+    for sid, sess in snapshot.items():
+        s = {k: v for k, v in sess.items() if k not in ("board", "train_last_move", "traceback")}
+        sessions[sid] = s
+    return jsonify({"sessions": sessions})
 
 
 @app.route("/api/hyperparams", methods=["GET"])
@@ -603,8 +733,8 @@ def get_hyperparams():
 def set_hyperparams():
     if current_agent is None:
         return jsonify({"error": "Aucun agent sélectionné"}), 400
-    if training_status["running"]:
-        return jsonify({"error": "Entraînement en cours, attends la fin"}), 400
+    # Les sessions d'entraînement étant isolées, on peut modifier les hyperparams
+    # de l'agent de jeu indépendamment.
 
     data = request.get_json(force=True) or {}
     config = current_agent.get_config()

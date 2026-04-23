@@ -286,6 +286,74 @@
 
     .agent-btn.selected .agent-dot { background: #c9a84c; }
 
+    /* ===== Sessions actives ===== */
+    .sessions-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .session-item {
+      background: #1a1a2e;
+      border: 1px solid #2a3a5e;
+      border-radius: 7px;
+      padding: 8px 10px;
+    }
+
+    .session-item.running {
+      border-color: #c9a84c60;
+    }
+
+    .session-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+
+    .session-name {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #c9a84c;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .session-badge {
+      font-size: 0.68rem;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+
+    .session-badge.running { background: #c9a84c30; color: #c9a84c; }
+    .session-badge.done    { background: #1e4a2a; color: #66bb6a; }
+    .session-badge.error   { background: #7a2a2e; color: #ff5252; }
+
+    .session-bar-wrap {
+      height: 4px;
+      background: #2a3a5e;
+      border-radius: 2px;
+      margin: 4px 0;
+      overflow: hidden;
+    }
+
+    .session-bar-fill {
+      height: 100%;
+      background: #c9a84c;
+      border-radius: 2px;
+      transition: width 0.3s ease;
+    }
+
+    .session-info {
+      font-size: 0.70rem;
+      color: #666;
+      display: flex;
+      justify-content: space-between;
+    }
+
     /* ===== Training ===== */
     .train-row {
       display: flex;
@@ -711,9 +779,21 @@
       </button>
     </div>
 
+    <!-- Sessions actives -->
+    <div class="card" id="sessions-card" style="display:none">
+      <h3>Sessions d'entraînement</h3>
+      <div class="sessions-list" id="sessions-list"></div>
+    </div>
+
     <!-- Training -->
     <div class="card" id="train-card" style="display:none">
       <h3>Entraînement</h3>
+      <div class="train-row" style="margin-bottom:6px">
+        <label for="train-agent-select" style="white-space:nowrap;font-size:0.78rem;color:#888">Agent :</label>
+        <select id="train-agent-select" style="flex:1;padding:5px 8px;background:#1a1a2e;border:1px solid #2a3a5e;border-radius:5px;color:#e0e0e0;font-size:0.83rem">
+          <!-- rempli par JS -->
+        </select>
+      </div>
       <div class="train-row">
         <label for="train-episodes">Épisodes :</label>
         <input type="number" id="train-episodes" value="200" min="1" max="100000">
@@ -743,60 +823,60 @@
           <div class="param-row">
             <div class="param-header">
               <span class="param-label" style="color:#aaa">Capture reward</span>
-              <span class="param-value-display" id="capture-display">0.10 / pion</span>
+              <span class="param-value-display" id="capture-display">0.01 / pion</span>
             </div>
             <div class="param-desc">Reward par point de matériel capturé</div>
             <div class="param-control">
               <input type="range" class="param-slider" id="capture-slider"
-                     min="0" max="0.5" step="0.01" value="0.1"
+                     min="0" max="0.5" step="0.01" value="0.01"
                      oninput="onCaptureChange(this.value)">
               <input type="number" class="param-num" id="capture-num"
-                     min="0" max="0.5" step="0.01" value="0.10"
+                     min="0" max="0.5" step="0.01" value="0.01"
                      onchange="onCaptureNumChange(this.value)">
             </div>
           </div>
           <div class="param-row">
             <div class="param-header">
               <span class="param-label" style="color:#aaa">Loss penalty</span>
-              <span class="param-value-display" id="loss-display">0.10 / pion</span>
+              <span class="param-value-display" id="loss-display">0.01 / pion</span>
             </div>
             <div class="param-desc">Pénalité par point de matériel perdu</div>
             <div class="param-control">
               <input type="range" class="param-slider" id="loss-slider"
-                     min="0" max="0.5" step="0.01" value="0.1"
+                     min="0" max="0.5" step="0.01" value="0.01"
                      oninput="onLossChange(this.value)">
               <input type="number" class="param-num" id="loss-num"
-                     min="0" max="0.5" step="0.01" value="0.10"
+                     min="0" max="0.5" step="0.01" value="0.01"
                      onchange="onLossNumChange(this.value)">
             </div>
           </div>
           <div class="param-row">
             <div class="param-header">
               <span class="param-label" style="color:#aaa">Win reward</span>
-              <span class="param-value-display" id="win-display">1.00 fin de partie</span>
+              <span class="param-value-display" id="win-display">10.00 fin de partie</span>
             </div>
             <div class="param-desc">Reward terminal si l'agent gagne la partie</div>
             <div class="param-control">
               <input type="range" class="param-slider" id="win-slider"
-                     min="0" max="5" step="0.1" value="1.0"
+                     min="0" max="10" step="0.1" value="10.0"
                      oninput="onWinChange(this.value)">
               <input type="number" class="param-num" id="win-num"
-                     min="0" max="5" step="0.1" value="1.0"
+                     min="0" max="10" step="0.1" value="10.0"
                      onchange="onWinNumChange(this.value)">
             </div>
           </div>
           <div class="param-row">
             <div class="param-header">
               <span class="param-label" style="color:#aaa">Defeat penalty</span>
-              <span class="param-value-display" id="defeat-display">1.00 fin de partie</span>
+              <span class="param-value-display" id="defeat-display">10.00 fin de partie</span>
             </div>
             <div class="param-desc">Pénalité terminale si l'agent perd la partie</div>
             <div class="param-control">
               <input type="range" class="param-slider" id="defeat-slider"
-                     min="0" max="5" step="0.1" value="1.0"
+                     min="0" max="10" step="0.1" value="10.0"
                      oninput="onDefeatChange(this.value)">
               <input type="number" class="param-num" id="defeat-num"
-                     min="0" max="5" step="0.1" value="1.0"
+                     min="0" max="10" step="0.1" value="10.0"
                      onchange="onDefeatNumChange(this.value)">
             </div>
           </div>
@@ -808,7 +888,7 @@
         </div>
       </div>
       <div id="self-play-note" class="param-desc" style="display:none;margin-top:4px">
-        Cet agent s'entraîne en self-play interne. Le reward shaping n'est pas utilisé.
+        Cet agent s'entraîne en self-play pendant l'entraînement.
       </div>
       <button class="btn btn-secondary" id="btn-train" onclick="startTraining()" style="margin-top:4px">Entraîner</button>
       <div class="progress-bar-wrap">
@@ -912,6 +992,7 @@ let chosenColor  = 'white';
 let moveLog      = [];
 let currentAgent = 'random';
 let trainingPoll = null;
+let sessionsPoll = null;
 let currentAgentCapabilities = { reward_shaping: false, tree_search: false, self_play: false };
 
 // ===================================================================
@@ -922,6 +1003,8 @@ function init() {
   buildFileLabels();
   buildAgentGrid();
   fetchState();
+  // Poll des sessions toutes les 2 s
+  sessionsPoll = setInterval(pollAllSessions, 2000);
 }
 
 function buildFileLabels() {
@@ -1181,6 +1264,7 @@ async function selectAgent(id) {
   if (!isRandom) {
     updateAgentStats(null);
     loadHyperparams();
+    buildTrainAgentSelect();
     const suffix = data.checkpoint_exists ? ' (checkpoint chargé)' : ' (nouvel état)';
     showToast(`Agent "${id}" sélectionné${suffix}`, 'success', 2200);
   }
@@ -1211,6 +1295,86 @@ function updateAgentStats(agentInfo) {
     ? Number(agentInfo.mean_reward).toFixed(3) : '—';
   qtEl.textContent = agentInfo.q_table_size !== undefined
     ? agentInfo.q_table_size.toLocaleString() : '—';
+}
+
+// ===================================================================
+// Sessions d'entraînement (multi-training)
+// ===================================================================
+function buildTrainAgentSelect() {
+  const sel = document.getElementById('train-agent-select');
+  if (!sel) return;
+  sel.innerHTML = '';
+  AGENT_DEFS.filter(a => a.id !== 'random').forEach(a => {
+    const opt = document.createElement('option');
+    opt.value = a.id;
+    opt.textContent = `${a.icon} ${a.label}`;
+    if (a.id === currentAgent) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+async function pollAllSessions() {
+  const data = await apiFetch('/api/training_sessions');
+  if (!data || !data.sessions) return;
+  renderSessionsPanel(data.sessions);
+}
+
+function renderSessionsPanel(sessions) {
+  const card = document.getElementById('sessions-card');
+  const list = document.getElementById('sessions-list');
+  if (!card || !list) return;
+
+  // Trier : running d'abord, puis par start_time décroissant
+  const entries = Object.entries(sessions).sort(([, a], [, b]) => {
+    if (a.running !== b.running) return a.running ? -1 : 1;
+    return (b.start_time || 0) - (a.start_time || 0);
+  });
+
+  if (entries.length === 0) {
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = '';
+  list.innerHTML = '';
+
+  entries.forEach(([sid, sess]) => {
+    const item = document.createElement('div');
+    item.className = 'session-item' + (sess.running ? ' running' : '');
+
+    let badgeClass = 'done', badgeText = 'Terminé';
+    if (sess.running) { badgeClass = 'running'; badgeText = 'En cours'; }
+    else if (sess.error) { badgeClass = 'error'; badgeText = 'Erreur'; }
+
+    const agentName = sess.agent || sid;
+    const agentDef = AGENT_DEFS.find(a => a.id === agentName) || { icon: '?', label: agentName };
+
+    // Extraire l'horodatage du session_id (format: agent_HHMMSS_ms)
+    const timeMatch = sid.match(/_(\d{6})_/);
+    const timeLabel = timeMatch
+      ? `${timeMatch[1].slice(0,2)}:${timeMatch[1].slice(2,4)}:${timeMatch[1].slice(4,6)}`
+      : '';
+
+    const pct = sess.progress || 0;
+
+    item.innerHTML = `
+      <div class="session-header">
+        <span class="session-name">
+          ${agentDef.icon} ${agentDef.label}
+          ${timeLabel ? `<span style="font-size:0.65rem;color:#666;font-weight:400">${timeLabel}</span>` : ''}
+        </span>
+        <span class="session-badge ${badgeClass}">${badgeText}</span>
+      </div>
+      <div class="session-bar-wrap">
+        <div class="session-bar-fill" style="width:${pct}%"></div>
+      </div>
+      <div class="session-info">
+        <span>${sess.episodes_done || 0} / ${sess.total || 0} épisodes</span>
+        <span>${pct}%</span>
+      </div>
+      ${sess.error ? `<div style="font-size:0.70rem;color:#ff5252;margin-top:4px;word-break:break-word">${sess.error}</div>` : ''}
+    `;
+    list.appendChild(item);
+  });
 }
 
 // ===================================================================
@@ -1258,47 +1422,46 @@ function onLossNumChange(val) {
 function onWinNumChange(val) {
   const s = document.getElementById('win-slider');
   const d = document.getElementById('win-display');
-  const v = Math.min(5, Math.max(0, parseFloat(val) || 0));
+  const v = Math.min(10, Math.max(0, parseFloat(val) || 0));
   if (s) s.value = v;
   if (d) d.textContent = v.toFixed(2) + ' fin de partie';
 }
 function onDefeatNumChange(val) {
   const s = document.getElementById('defeat-slider');
   const d = document.getElementById('defeat-display');
-  const v = Math.min(5, Math.max(0, parseFloat(val) || 0));
+  const v = Math.min(10, Math.max(0, parseFloat(val) || 0));
   if (s) s.value = v;
   if (d) d.textContent = v.toFixed(2) + ' fin de partie';
 }
 
 async function startTraining() {
-  const btn = document.getElementById('btn-train');
-  if (btn && btn.disabled) return;
-  if (btn) btn.disabled = true;
+  const btn         = document.getElementById('btn-train');
+  const agentSelEl  = document.getElementById('train-agent-select');
+  const episodesEl  = document.getElementById('train-episodes');
+  const delayEl     = document.getElementById('viz-delay-slider');
+  const shapingEl   = document.getElementById('reward-shaping-toggle');
+  const captureEl   = document.getElementById('capture-slider');
+  const lossEl      = document.getElementById('loss-slider');
+  const winEl       = document.getElementById('win-slider');
+  const defeatEl    = document.getElementById('defeat-slider');
 
-  const episodesEl = document.getElementById('train-episodes');
-  const delayEl    = document.getElementById('viz-delay-slider');
-  const shapingEl  = document.getElementById('reward-shaping-toggle');
-  const captureEl  = document.getElementById('capture-slider');
-  const lossEl     = document.getElementById('loss-slider');
-  const winEl      = document.getElementById('win-slider');
-  const defeatEl   = document.getElementById('defeat-slider');
-
+  const targetAgent    = agentSelEl ? agentSelEl.value : currentAgent;
   const n              = parseInt(episodesEl ? episodesEl.value : 200) || 200;
   const delay          = parseInt(delayEl ? delayEl.value : 0) || 0;
   const rewardShaping  = shapingEl ? shapingEl.checked : false;
-  const captureScale   = parseFloat(captureEl ? captureEl.value : 0.1) || 0.1;
-  const lossScale      = parseFloat(lossEl ? lossEl.value : 0.1) || 0.1;
-  const winReward      = parseFloat(winEl ? winEl.value : 1.0) || 1.0;
-  const defeatPenalty  = parseFloat(defeatEl ? defeatEl.value : 1.0) || 1.0;
+  const captureScale   = parseFloat(captureEl ? captureEl.value : 0.01) || 0.01;
+  const lossScale      = parseFloat(lossEl ? lossEl.value : 0.01) || 0.01;
+  const winReward      = parseFloat(winEl ? winEl.value : 10.0) || 10.0;
+  const defeatPenalty  = parseFloat(defeatEl ? defeatEl.value : 10.0) || 10.0;
 
-  const body = { episodes: n, viz_delay: delay };
+  const body = { agent: targetAgent, episodes: n, viz_delay: delay };
   if (currentAgentCapabilities.reward_shaping) {
     body.reward_shaping = rewardShaping;
   }
   if (currentAgentCapabilities.reward_shaping && rewardShaping) {
-    body.capture_reward_scale = captureScale;
-    body.loss_penalty_scale   = lossScale;
-    body.terminal_win_reward  = winReward;
+    body.capture_reward_scale  = captureScale;
+    body.loss_penalty_scale    = lossScale;
+    body.terminal_win_reward   = winReward;
     body.terminal_loss_penalty = defeatPenalty;
   }
 
@@ -1307,19 +1470,19 @@ async function startTraining() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!data) {
-    if (btn) btn.disabled = false;
-    return;
-  }
+  if (!data) return;
 
-  const label = delay > 0 ? ` · ${delay}ms/coup` : ' · max vitesse';
-  showToast(`Entraînement lancé (${n} épisodes${label})`, 'info', 2500);
-  if (btn) btn.disabled = true;
+  const agentDef = AGENT_DEFS.find(a => a.id === targetAgent) || { label: targetAgent };
+  const label    = delay > 0 ? ` · ${delay} ms/coup` : ' · max vitesse';
+  showToast(`Entraînement « ${agentDef.label} » lancé (${n} épisodes${label})`, 'info', 2500);
 
-  // Polling rapide quand un délai est activé, sinon 400ms suffit
+  // Démarrer / réinitialiser le polling du statut pour l'agent courant
   const pollInterval = delay > 0 ? Math.max(50, delay / 2) : 400;
   if (trainingPoll) clearInterval(trainingPoll);
   trainingPoll = setInterval(pollTrainingStatus, pollInterval);
+
+  // Actualiser immédiatement le panneau des sessions
+  pollAllSessions();
 }
 
 async function pollTrainingStatus() {
@@ -1362,11 +1525,14 @@ async function pollTrainingStatus() {
     if (data.error) {
       showToast(`Entraînement échoué : ${data.error}`, 'error');
     } else if (data.episodes_done > 0) {
+      const agentDef = AGENT_DEFS.find(a => a.id === data.agent) || { label: data.agent || 'agent' };
       const msg = data.checkpoint_saved
-        ? 'Entraînement terminé et checkpoint sauvegardé'
-        : 'Entraînement terminé !';
+        ? `Entraînement « ${agentDef.label} » terminé — checkpoint sauvegardé`
+        : `Entraînement « ${agentDef.label} » terminé !`;
       showToast(msg, 'success');
     }
+    // Rafraîchir le panneau des sessions
+    pollAllSessions();
   }
 }
 

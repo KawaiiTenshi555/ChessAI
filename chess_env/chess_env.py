@@ -60,11 +60,11 @@ class ChessEnv(gym.Env):
         opponent_policy: Optional[Callable] = None,
         player_color: int = WHITE,
         reward_shaping: bool = False,
-        capture_reward_scale: float = 0.0,
-        loss_penalty_scale: float = 0.0,
-        terminal_win_reward: float = 1.0,
-        terminal_loss_penalty: float = 1.0,
-        invalid_action_penalty: float = -0.05,
+        capture_reward_scale: float = 0.01,
+        loss_penalty_scale: float = 0.01,
+        terminal_win_reward: float = 10.0,
+        terminal_loss_penalty: float = 10.0,
+        invalid_action_penalty: float = -1.0,
     ):
         super().__init__()
         self.render_mode = render_mode

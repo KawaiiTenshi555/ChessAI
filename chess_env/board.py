@@ -14,7 +14,7 @@ Piece encoding:
 
 import numpy as np
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple, NamedTuple
 
 # --- Constants ---
 EMPTY = 0
@@ -28,6 +28,18 @@ PIECE_SYMBOLS = {
 }
 
 INITIAL_BACK_RANK = [ROOK, KNIGHT, BISHOP, QUEEN, KING, BISHOP, KNIGHT, ROOK]
+
+
+class _MoveUndo(NamedTuple):
+    """Minimal state snapshot for push/pop during legal move checking."""
+    turn: int
+    cr_wk: bool; cr_wq: bool; cr_bk: bool; cr_bq: bool
+    ep_sq: Optional[int]
+    hmc: int; fmn: int
+    captured: int
+    ep_pawn_sq: Optional[int]  # sq of pawn removed by en passant
+    rook_from: Optional[int]   # for undoing castling
+    rook_to: Optional[int]
 
 
 @dataclass
@@ -383,18 +395,155 @@ class ChessBoard:
 
     def find_king(self, color: int) -> int:
         """Return the square of the king of `color`, or -1 if not found."""
-        target = color * KING
-        for sq in range(64):
-            r, c = self.rc(sq)
-            if self.board[r][c] == target:
-                return sq
-        return -1
+        result = np.argwhere(self.board == color * KING)
+        if len(result) == 0:
+            return -1
+        r, c = result[0]
+        return int(r * 8 + c)
 
     def is_in_check(self, color: int) -> bool:
         king_sq = self.find_king(color)
         if king_sq == -1:
             return False
         return self.is_square_attacked(king_sq, -color)
+
+    # ------------------------------------------------------------------
+    # Push / pop for legal move checking (avoids board.copy())
+    # ------------------------------------------------------------------
+
+    def _push_legal(self, move: Move) -> _MoveUndo:
+        """Apply move in-place for legality checking. Returns undo state."""
+        from_row, from_col = move.from_sq >> 3, move.from_sq & 7
+        to_row,   to_col   = move.to_sq   >> 3, move.to_sq   & 7
+        piece    = int(self.board[from_row][from_col])
+        pt       = abs(piece)
+        color    = 1 if piece > 0 else -1
+        captured = int(self.board[to_row][to_col])
+
+        # Snapshot before modification
+        saved_turn  = self.turn
+        saved_ep    = self.en_passant_sq
+        saved_hmc   = self.halfmove_clock
+        saved_fmn   = self.fullmove_number
+        saved_cr_wk = self.castling_rights[WHITE]["K"]
+        saved_cr_wq = self.castling_rights[WHITE]["Q"]
+        saved_cr_bk = self.castling_rights[BLACK]["K"]
+        saved_cr_bq = self.castling_rights[BLACK]["Q"]
+
+        ep_pawn_sq = None
+        rook_from  = None
+        rook_to    = None
+
+        # Halfmove clock
+        if pt == PAWN or captured != EMPTY:
+            self.halfmove_clock = 0
+        else:
+            self.halfmove_clock += 1
+
+        # En passant capture
+        if pt == PAWN and move.to_sq == self.en_passant_sq:
+            ep_pawn_row = to_row - 1 if color == WHITE else to_row + 1
+            ep_pawn_sq  = ep_pawn_row * 8 + to_col
+            self.board[ep_pawn_row][to_col] = EMPTY
+
+        # Move piece
+        self.board[to_row][to_col]     = piece
+        self.board[from_row][from_col] = EMPTY
+
+        # Update en passant square
+        if pt == PAWN and abs(to_row - from_row) == 2:
+            self.en_passant_sq = ((from_row + to_row) >> 1) * 8 + from_col
+        else:
+            self.en_passant_sq = None
+
+        # Castling: move rook
+        if pt == KING:
+            col_diff = to_col - from_col
+            if col_diff == 2:
+                rook_from = from_row * 8 + 7
+                rook_to   = from_row * 8 + 5
+                self.board[from_row][5] = self.board[from_row][7]
+                self.board[from_row][7] = EMPTY
+            elif col_diff == -2:
+                rook_from = from_row * 8
+                rook_to   = from_row * 8 + 3
+                self.board[from_row][3] = self.board[from_row][0]
+                self.board[from_row][0] = EMPTY
+            self.castling_rights[color]["K"] = False
+            self.castling_rights[color]["Q"] = False
+
+        # Revoke castling when own rook moves
+        if pt == ROOK:
+            back_row = 0 if color == WHITE else 7
+            if from_row == back_row:
+                if from_col == 7:
+                    self.castling_rights[color]["K"] = False
+                elif from_col == 0:
+                    self.castling_rights[color]["Q"] = False
+
+        # Revoke castling when opponent rook captured
+        if captured != EMPTY and abs(captured) == ROOK:
+            cap_color = 1 if captured > 0 else -1
+            back_row  = 0 if cap_color == WHITE else 7
+            if to_row == back_row:
+                if to_col == 7:
+                    self.castling_rights[cap_color]["K"] = False
+                elif to_col == 0:
+                    self.castling_rights[cap_color]["Q"] = False
+
+        # Promotion
+        if move.promotion:
+            self.board[to_row][to_col] = color * move.promotion
+
+        # Switch turn
+        if self.turn == BLACK:
+            self.fullmove_number += 1
+        self.turn = -self.turn
+
+        return _MoveUndo(
+            turn=saved_turn,
+            cr_wk=saved_cr_wk, cr_wq=saved_cr_wq,
+            cr_bk=saved_cr_bk, cr_bq=saved_cr_bq,
+            ep_sq=saved_ep, hmc=saved_hmc, fmn=saved_fmn,
+            captured=captured, ep_pawn_sq=ep_pawn_sq,
+            rook_from=rook_from, rook_to=rook_to,
+        )
+
+    def _pop_legal(self, move: Move, undo: _MoveUndo) -> None:
+        """Undo a move applied with _push_legal."""
+        from_row, from_col = move.from_sq >> 3, move.from_sq & 7
+        to_row,   to_col   = move.to_sq   >> 3, move.to_sq   & 7
+        color = undo.turn  # color that originally made the move
+
+        # Restore moved piece (pawn if promoted, else piece at to_sq)
+        if move.promotion:
+            self.board[from_row][from_col] = color * PAWN
+        else:
+            self.board[from_row][from_col] = self.board[to_row][to_col]
+        self.board[to_row][to_col] = undo.captured
+
+        # Restore en passant captured pawn
+        if undo.ep_pawn_sq is not None:
+            ep_row = undo.ep_pawn_sq >> 3
+            ep_col = undo.ep_pawn_sq & 7
+            self.board[ep_row][ep_col] = (-color) * PAWN
+
+        # Restore castling rook
+        if undo.rook_from is not None:
+            rf_row = undo.rook_from >> 3; rf_col = undo.rook_from & 7
+            rt_row = undo.rook_to   >> 3; rt_col = undo.rook_to   & 7
+            self.board[rf_row][rf_col] = self.board[rt_row][rt_col]
+            self.board[rt_row][rt_col] = EMPTY
+
+        # Restore scalar state
+        self.turn = undo.turn
+        self.castling_rights[WHITE]["K"] = undo.cr_wk
+        self.castling_rights[WHITE]["Q"] = undo.cr_wq
+        self.castling_rights[BLACK]["K"] = undo.cr_bk
+        self.castling_rights[BLACK]["Q"] = undo.cr_bq
+        self.en_passant_sq  = undo.ep_sq
+        self.halfmove_clock = undo.hmc
+        self.fullmove_number = undo.fmn
 
     # ------------------------------------------------------------------
     # Legal move generation
@@ -405,10 +554,10 @@ class ChessBoard:
         color = self.turn
         legal: List[Move] = []
         for move in self._pseudo_legal_moves(color):
-            copy = self.copy()
-            copy._apply_move_unchecked(move)
-            if not copy.is_in_check(color):
+            undo = self._push_legal(move)
+            if not self.is_in_check(color):
                 legal.append(move)
+            self._pop_legal(move, undo)
         return legal
 
     # ------------------------------------------------------------------

@@ -153,7 +153,7 @@ class AlphaZeroAgent(BaseAgent):
 
     def _board_to_observation(self, board: ChessBoard) -> np.ndarray:
         """
-        Canonical encoding from the side-to-move perspective.
+        Canonical encoding from the side-to-move perspective (vectorised).
 
         Channels:
           0-5   current player pieces
@@ -165,29 +165,32 @@ class AlphaZeroAgent(BaseAgent):
           16    opponent has any castling right
         """
         obs = np.zeros(self.observation_shape, dtype=np.float32)
-        current = board.turn
+        current  = board.turn
         opponent = -current
 
-        for square in range(64):
-            piece = board.get_piece(square)
-            if piece == 0:
-                continue
+        b = board.board  # (8, 8) int8 array
+        rows_raw, cols_raw = np.nonzero(b)
 
-            row, col = ChessBoard.rc(square)
+        if len(rows_raw) > 0:
+            pieces = b[rows_raw, cols_raw].astype(np.int32)
             if current == BLACK:
-                row, col = 7 - row, 7 - col
+                rows = 7 - rows_raw
+                cols = 7 - cols_raw
+            else:
+                rows, cols = rows_raw, cols_raw
 
-            offset = 0 if board.color_of(piece) == current else 6
-            channel = offset + abs(piece) - 1
-            obs[row, col, channel] = 1.0
+            is_current = (pieces > 0) if current == WHITE else (pieces < 0)
+            offsets  = np.where(is_current, 0, 6)
+            channels = offsets + np.abs(pieces) - 1
+            obs[rows, cols, channels] = 1.0
 
         obs[:, :, 12] = 1.0
 
         if board.en_passant_sq is not None:
-            row, col = ChessBoard.rc(board.en_passant_sq)
+            ep_row, ep_col = ChessBoard.rc(board.en_passant_sq)
             if current == BLACK:
-                row, col = 7 - row, 7 - col
-            obs[row, col, 13] = 1.0
+                ep_row, ep_col = 7 - ep_row, 7 - ep_col
+            obs[ep_row, ep_col, 13] = 1.0
 
         if board.castling_rights[current]["K"]:
             obs[:, :, 14] = 1.0
