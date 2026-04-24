@@ -136,10 +136,11 @@ class TestSpecialMoves:
     """Vérifie en passant, roque et promotion."""
 
     def test_en_passant(self):
-        """Après 1.e4 e5 2.e5 d5 3.exd6 — la prise en passant doit être possible."""
+        """Prise en passant : 1.e4 h6 2.e5 d5 → e5d6 légal."""
         py = PyBoard()
         cy = CyBoard()
-        for uci in ["e2e4", "e7e5", "e4e5", "d7d5"]:
+        # White e-pawn reaches e5, then Black d-pawn jumps d7→d5 creating ep square d6
+        for uci in ["e2e4", "h7h6", "e4e5", "d7d5"]:
             _apply_uci(py, uci)
             _apply_uci(cy, uci)
         assert "e5d6" in _legal_uci_set(py)
@@ -168,28 +169,28 @@ class TestSpecialMoves:
         assert _legal_uci_set(py) == _legal_uci_set(cy)
 
     def test_promotion(self):
-        """Vérifie que les 4 promotions sont générées."""
+        """Pion blanc sur g7 capture tour noire en h8 avec promotion dame."""
         py = PyBoard()
         cy = CyBoard()
-        # Partie Réti rapide approchant la promotion (seed fixe)
-        for uci in ["e2e4", "f7f5", "e4f5", "g7g5", "f5g6", "h7h6",
-                    "g6g7", "h6h5", "g7g8q"]:
+        # f-pawn avance et capture jusqu'à g7, puis g7xh8=Q
+        for uci in ["f2f4", "a7a6", "f4f5", "a6a5", "f5f6", "a5a4",
+                    "f6g7", "a4a3", "g7h8q"]:
             _apply_uci(py, uci)
             _apply_uci(cy, uci)
-        # La prise en passant g7g8 avec promotion dame doit exister sur les deux
         assert _legal_uci_set(py) == _legal_uci_set(cy)
 
     def test_promotion_choices(self):
-        """Les 4 promotions (q/r/b/n) doivent être présentes avant le dernier coup."""
+        """Les 4 promotions (q/r/b/n) disponibles via g7xh8."""
         py = PyBoard()
         cy = CyBoard()
-        for uci in ["e2e4", "f7f5", "e4f5", "g7g5", "f5g6", "h7h6",
-                    "g6g7", "h6h5"]:
+        # Même setup que test_promotion, sans le coup final
+        for uci in ["f2f4", "a7a6", "f4f5", "a6a5", "f5f6", "a5a4",
+                    "f6g7", "a4a3"]:
             _apply_uci(py, uci)
             _apply_uci(cy, uci)
         py_set = _legal_uci_set(py)
         cy_set = _legal_uci_set(cy)
-        for promo in ("g7g8q", "g7g8r", "g7g8b", "g7g8n"):
+        for promo in ("g7h8q", "g7h8r", "g7h8b", "g7h8n"):
             assert promo in py_set, f"Promotion {promo} absente en Python"
             assert promo in cy_set, f"Promotion {promo} absente en Cython"
 

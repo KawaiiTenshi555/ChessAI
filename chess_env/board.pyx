@@ -160,8 +160,8 @@ cdef class ChessBoard:
     # État de jeu
     cdef public int turn
     cdef int        en_passant_sq    # -1 si absent
-    cdef int        halfmove_clock
-    cdef int        fullmove_number
+    cdef public int halfmove_clock
+    cdef public int fullmove_number
 
     # Droits de roque (4 bools C)
     cdef bint castle_wk, castle_wq, castle_bk, castle_bq
@@ -835,14 +835,15 @@ cdef class ChessBoard:
         cdef Move move
         cdef _MoveUndo undo
         cdef int king_sq
+        cdef int mover = self.turn   # sauvé AVANT le push (qui change self.turn)
 
-        pseudo = self._pseudo_legal_moves_c(self.turn)
+        pseudo = self._pseudo_legal_moves_c(mover)
         legal  = []
 
         for move in pseudo:
             undo    = self._push_legal(move)
-            king_sq = self._find_king_c(self.turn)
-            if king_sq == -1 or not self.is_square_attacked_c(king_sq, -self.turn):
+            king_sq = self._find_king_c(mover)              # roi du joueur qui a bougé
+            if king_sq == -1 or not self.is_square_attacked_c(king_sq, -mover):
                 legal.append(move)
             self._pop_legal(move, undo)
         return legal
